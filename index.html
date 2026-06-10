@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PuG Vetter</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>PuG Vetter</h1>
+    <p class="sub">Warcraft Logs lookup &mdash; clears, parses, enchants &amp; gems &nbsp;·&nbsp; <b id="realm-label">…</b></p>
+  </header>
+
+  <form id="vet-form" autocomplete="off">
+    <input id="name" name="name" placeholder="Character name" required autofocus />
+    <button type="submit">Vet</button>
+  </form>
+
+  <div id="status" class="status"></div>
+  <main id="result"></main>
+
+  <aside id="history-wrap" hidden>
+    <h2>Recent lookups</h2>
+    <ul id="history"></ul>
+  </aside>
+
+  <footer>
+    Data: <a href="https://classic.warcraftlogs.com" target="_blank" rel="noopener">Warcraft Logs</a>.
+    Only logged characters appear &mdash; "no data" is not proof someone hasn't raided.
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

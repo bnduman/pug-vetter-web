@@ -1,0 +1,9 @@
+{
+  "name": "pug-vetter-web",
+  "private": true,
+  "type": "module",
+  "description": "Static, client-side PuG vetting tool for WoW Classic Anniversary (Warcraft Logs)",
+  "scripts": {
+    "smoke": "node test/smoke.mjs"
+  }
+}
