@@ -1,8 +1,10 @@
 // The lookup orchestration: character rankings (+ latest report's boss fights
-// in the same query), then one gear query. Returns the same scorecard shape
-// the Flask version's /api/vet produced.
+// in the same query), then one gear query. Produces the full scorecard.
 import { CONFIG } from "./config.js";
-import { analyzeEnchants, findPlayerGear, parseColor, summarizeZone } from "./analyze.js";
+import {
+  analyzeEnchants, buildGearList, findPlayer, parseColor, primarySpec, summarizeZone,
+} from "./analyze.js";
+import { CLASS_COLORS, CLASS_NAMES } from "./wcl-classes.js";
 import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 import { getRaidZones } from "./zones.js";
 
@@ -38,18 +40,25 @@ query($code: String!, $fightIDs: [Int]!) {
   }
 }`;
 
-async function fetchEnchants(reportCode, fightIds, charName) {
+// -> {enchants, gear, role} or null when the character isn't in the report.
+async function fetchGearInfo(reportCode, fightIds, charName) {
   if (!fightIds.length) return null;
   const data = await postGraphQL(REPORT_GEAR_QUERY, { code: reportCode, fightIDs: fightIds });
   const details = data.reportData?.report?.playerDetails;
-  const gear = findPlayerGear(details, charName);
-  return gear ? analyzeEnchants(gear) : null;
+  const player = findPlayer(details, charName);
+  if (!player) return null;
+  return {
+    enchants: analyzeEnchants(player.gear),
+    gear: buildGearList(player.gear),
+    role: player.role,
+  };
 }
 
 export async function vet(name) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  const key = `vet/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet2" — cache key versioned; bump when the result shape changes.
+  const key = `vet2/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 
@@ -66,13 +75,14 @@ export async function vet(name) {
     return result;
   }
 
-  const raids = zones.map((z) => {
-    const summary = summarizeZone(z.name, char[`z${z.id}`]);
+  const zrList = zones.map((z) => char[`z${z.id}`]);
+  const raids = zones.map((z, i) => {
+    const summary = summarizeZone(z.name, zrList[i]);
     const { tier, color } = parseColor(summary.best_parse);
     return { ...summary, tier, color };
   });
 
-  let enchants = null;
+  let gearInfo = null;
   let lastLog = null;
   const recent = char.recentReports?.data ?? [];
   if (recent.length) {
@@ -81,21 +91,26 @@ export async function vet(name) {
     const fightIds = (recent[0].fights ?? []).map((f) => f.id).filter((id) => id != null);
     if (code && fightIds.length) {
       try {
-        enchants = await fetchEnchants(code, fightIds, name);
+        gearInfo = await fetchGearInfo(code, fightIds, name);
       } catch {
-        enchants = null; // gear is a bonus; never fail the whole lookup over it
+        gearInfo = null; // gear is a bonus; never fail the whole lookup over it
       }
     }
   }
 
+  const className = CLASS_NAMES[char.classID] ?? null;
   const result = {
     found: true,
     name: char.name ?? name,
     realm,
     region,
-    classID: char.classID ?? null,
+    class: className,
+    classColor: CLASS_COLORS[className] ?? "#e8e9ee",
+    spec: primarySpec(zrList),
+    role: gearInfo?.role ?? null,
     raids,
-    enchants,
+    enchants: gearInfo?.enchants ?? null,
+    gear: gearInfo?.gear ?? null,
     last_log: lastLog,
   };
   cacheSet(key, result);

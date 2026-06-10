@@ -1,20 +1,27 @@
 "use strict";
 import { CONFIG } from "./config.js";
+import { QUALITY_COLORS } from "./analyze.js";
+import { ROLE_ICONS } from "./wcl-classes.js";
 import { vet } from "./vet.js";
 import { WCLError } from "./wcl.js";
 
 const form = document.getElementById("vet-form");
 const statusEl = document.getElementById("status");
-const resultEl = document.getElementById("result");
-const historyEl = document.getElementById("history");
-const historyWrap = document.getElementById("history-wrap");
+const feedEl = document.getElementById("feed");
 const btn = form.querySelector("button");
 
-const history = []; // {name, found}
+const ICON_BASE = "https://assets.rpglogs.com/img/warcraft/abilities/";
+const WOWHEAD = "https://www.wowhead.com/tbc/item=";
+const FEED_CAP = 12;
+const GROUPS = ["g1", "g2", "g3", "g4", "g5"];
+const GROUP_SIZE = 5;
 
-// Realm/region are fixed in js/config.js, so the form only asks for a name.
 document.getElementById("realm-label").textContent =
   CONFIG.REALM ? `${CONFIG.REALM} (${CONFIG.REGION})` : "no realm configured — edit js/config.js";
+
+// ===========================================================================
+// Search & result-card feed (newest card on top, older ones pushed down)
+// ===========================================================================
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -24,13 +31,11 @@ form.addEventListener("submit", (e) => {
 
 async function lookup(name) {
   setStatus(`Looking up ${name}…`);
-  resultEl.innerHTML = "";
   btn.disabled = true;
   try {
     const data = await vet(name);
     setStatus("");
-    render(data);
-    addHistory(data);
+    addCard(data);
   } catch (err) {
     setStatus(err instanceof WCLError ? err.message : `Request failed: ${err}`, true);
   } finally {
@@ -48,21 +53,40 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function render(data) {
-  if (!data.found) {
-    resultEl.innerHTML = `<div class="no-data">
-      <b>No logs found</b> for <b>${esc(data.name)}</b> on ${esc(data.realm)} (${esc(data.region)}).<br>
-      They may simply have never been logged on Warcraft Logs &mdash; this is not proof they haven't raided.
-      Check the spelling of the name.
-    </div>`;
-    return;
-  }
+function addCard(data) {
+  // Re-searching someone removes their old card so the fresh one sits on top.
+  const key = data.name.toLowerCase();
+  feedEl.querySelector(`[data-card="${CSS.escape(key)}"]`)?.remove();
 
+  const card = document.createElement("div");
+  card.className = "card flash";
+  card.dataset.card = key;
+  card.innerHTML = data.found ? renderResult(data) : renderNoData(data);
+
+  if (data.found) {
+    card.querySelector(".add-roster")?.addEventListener("click", () => {
+      addToRoster(data);
+    });
+  }
+  feedEl.prepend(card);
+  while (feedEl.children.length > FEED_CAP) feedEl.lastChild.remove();
+}
+
+function renderNoData(data) {
+  return `<div class="no-data" style="border:none;padding:0">
+    <b>No logs found</b> for <b>${esc(data.name)}</b> on ${esc(data.realm)} (${esc(data.region)}).<br>
+    They may simply have never been logged on Warcraft Logs &mdash; this is not proof they haven't raided.
+    Check the spelling of the name.
+  </div>`;
+}
+
+function renderResult(data) {
   const raids = data.raids || [];
   const totalCleared = raids.reduce((n, r) => n + (r.cleared > 0 ? 1 : 0), 0);
-  const lastLog = data.last_log
-    ? new Date(data.last_log).toLocaleDateString()
-    : "—";
+  const lastLog = data.last_log ? new Date(data.last_log).toLocaleDateString() : "—";
+
+  const specTxt = [data.spec, data.class].filter(Boolean).join(" ") || "class unknown";
+  const roleIcon = data.role ? ROLE_ICONS[data.role] + " " : "";
 
   const raidRows = raids.map((r) => {
     const did = r.cleared > 0;
@@ -76,63 +100,223 @@ function render(data) {
     </div>`;
   }).join("");
 
-  resultEl.innerHTML = `<div class="card">
-    <h2>${esc(data.name)} <span class="meta" style="font-size:14px">${esc(data.realm)} · ${esc(data.region)}</span></h2>
-    <div class="meta">Last logged raid: ${lastLog} &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}</div>
+  return `
+    <div class="card-top">
+      <h2 style="color:${data.classColor}">${esc(data.name)}</h2>
+      <span class="spec-badge">${roleIcon}${esc(specTxt)}</span>
+      <button class="add-roster" type="button">＋ Add to roster</button>
+    </div>
+    <div class="meta">${esc(data.realm)} · ${esc(data.region)} &nbsp;·&nbsp; last logged raid: ${lastLog}
+      &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}</div>
 
     <div class="section-title">Raid clears &amp; best perf. average</div>
     ${raidRows || '<div class="meta">No raid ranking data.</div>'}
 
     <div class="section-title">Enchants &amp; gems (from last logged gear)</div>
-    ${renderEnchants(data.enchants)}
-  </div>`;
+    ${renderEnchantSummary(data.enchants)}
+    ${renderGear(data.gear)}`;
 }
 
-function renderEnchants(en) {
-  if (!en) {
-    return `<div class="meta">No gear data available from logs.</div>`;
-  }
+function renderEnchantSummary(en) {
+  if (!en) return `<div class="meta">No gear data available from logs.</div>`;
   const missing = en.missing_required || 0;
   const ilvl = en.avg_item_level == null ? "—" : en.avg_item_level;
-  const gems = en.gems_total || 0;
-  const gemTxt = `<span class="gem-total">💎 ${gems} gem${gems === 1 ? "" : "s"} socketed</span>`;
+
   const enchTxt = missing === 0
     ? `<b class="ok">✔ Fully enchanted</b>`
     : `<b class="warn">⚠ ${missing} missing enchant${missing > 1 ? "s" : ""}</b>`;
-  const head = `<div class="summary-line">${enchTxt} &nbsp;·&nbsp; ${gemTxt} &nbsp;·&nbsp; avg ilvl ${ilvl}</div>`;
+
+  const empty = en.empty_sockets || 0;
+  const gemTxt = empty === 0
+    ? `<span class="gem-total">💎 ${en.gems_total}/${en.sockets_total} sockets filled</span>`
+    : `<span class="warn">💎 ${en.gems_total}/${en.sockets_total} sockets — ${empty} empty</span>`;
 
   const chips = (en.slots || []).map((s) => {
-    let cls = "chip", icon = "", text = s.slot;
+    let cls = "chip", icon = "·", text = `${s.slot}: empty`;
     if (s.status === "enchanted") { cls += " ok"; icon = "✔"; text = `${s.slot}: ${esc(s.enchant)}`; }
-    else if (s.status === "missing") { cls += s.required ? " missing" : " missing optional"; icon = "✗"; text = `${s.slot}: none`; }
-    else { cls += " empty"; icon = "·"; text = `${s.slot}: empty`; }
-    if (!s.required) cls += " optional";
-    const gemBadge = s.gems > 0 ? `<span class="gem">💎${s.gems}</span>` : "";
-    return `<span class="${cls}">${icon} ${text}${s.required ? "" : " (opt)"}${gemBadge}</span>`;
+    else if (s.status === "missing") { cls += " missing"; icon = "✗"; text = `${s.slot}: none`; }
+    else cls += " empty";
+    return `<span class="${cls}">${icon} ${text}</span>`;
   }).join("");
 
-  return head + `<div class="enchants">${chips}</div>`;
+  return `<div class="summary-line">${enchTxt} &nbsp;·&nbsp; ${gemTxt} &nbsp;·&nbsp; avg ilvl ${ilvl}</div>
+    <div class="enchants">${chips}</div>`;
 }
 
-function addHistory(data) {
-  const label = data.name;
-  const entry = { name: data.name, label, found: data.found };
-  const i = history.findIndex((h) => h.label.toLowerCase() === label.toLowerCase());
-  if (i >= 0) history.splice(i, 1);
-  history.unshift(entry);
-  if (history.length > 10) history.pop();
-
-  historyWrap.hidden = history.length === 0;
-  historyEl.innerHTML = history.map((h, idx) =>
-    `<li data-i="${idx}">${esc(h.name)}<span class="h-meta">${h.found ? "" : "no data"}</span></li>`
-  ).join("");
+function renderGear(gear) {
+  if (!gear?.length) return "";
+  const rows = gear.map((g) => {
+    const icon = g.icon
+      ? `<img class="gicon" src="${ICON_BASE}${esc(g.icon)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+      : `<span class="gicon"></span>`;
+    const color = QUALITY_COLORS[g.quality] ?? "#fff";
+    const ench = g.enchant
+      ? `<span class="gench" title="${esc(g.enchant)}">${esc(g.enchant)}</span>`
+      : (g.enchantable ? `<span class="gench missing">no enchant</span>` : "<span></span>");
+    const gems = g.gems.map((gem) => {
+      const img = gem.icon
+        ? `<img src="${ICON_BASE}${esc(gem.icon)}" alt="gem" loading="lazy" onerror="this.style.visibility='hidden'">`
+        : "◆";
+      return `<a href="${WOWHEAD}${gem.id}" target="_blank" rel="noopener" title="gem">${img}</a>`;
+    }).join("");
+    const emptySock = g.emptySockets
+      ? `<span class="gsock-empty" title="${g.emptySockets} empty socket(s)">${"◇".repeat(g.emptySockets)}</span>`
+      : "";
+    const gemBlock = (gems || emptySock) ? `<span class="ggems">${gems}${emptySock}</span>` : "";
+    return `<div class="gear-row">
+      ${icon}
+      <span class="gslot">${esc(g.slotLabel)}</span>
+      <a class="gname" style="color:${color}" href="${WOWHEAD}${g.id}" target="_blank" rel="noopener">${esc(g.name)}</a>
+      <span class="gilvl">${g.itemLevel ?? ""}</span>
+      <span class="gextra">${ench}${gemBlock}</span>
+    </div>`;
+  }).join("");
+  return `<details class="gear-details"><summary>Full gear (${gear.length} items)</summary>
+    <div class="gear-list">${rows}</div></details>`;
 }
 
-historyEl.addEventListener("click", (e) => {
-  const li = e.target.closest("li");
-  if (!li) return;
-  const h = history[Number(li.dataset.i)];
-  if (!h) return;
-  document.getElementById("name").value = h.name;
-  lookup(h.name);
+// ===========================================================================
+// Roster builder (bench + 5 groups of 5, drag & drop, persisted)
+// ===========================================================================
+
+const rosterPanel = document.getElementById("roster-panel");
+const groupsEl = document.getElementById("groups");
+const STORE_KEY = "pvw_roster_v1";
+
+let roster = loadRoster(); // [{id,name,color,spec,role,ilvl,missEnch,emptySock,zone}]
+
+function loadRoster() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) ?? []; }
+  catch { return []; }
+}
+function saveRoster() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(roster)); } catch { /* ignore */ }
+}
+
+function addToRoster(data) {
+  const id = data.name.toLowerCase();
+  if (!roster.some((r) => r.id === id)) {
+    roster.push({
+      id,
+      name: data.name,
+      color: data.classColor,
+      cls: data.class,
+      spec: data.spec,
+      role: data.role,
+      ilvl: data.enchants?.avg_item_level ?? null,
+      missEnch: data.enchants?.missing_required ?? 0,
+      emptySock: data.enchants?.empty_sockets ?? 0,
+      zone: "bench",
+    });
+    saveRoster();
+  }
+  renderRoster();
+  // Draw the eye to where the card landed (or already was).
+  const el = rosterPanel.querySelector(`[data-id="${CSS.escape(id)}"]`);
+  el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  el?.animate([{ outline: "2px solid var(--accent)" }, { outline: "none" }], 900);
+}
+
+function moveEntry(id, zone) {
+  const entry = roster.find((r) => r.id === id);
+  if (!entry) return;
+  if (zone !== "bench" && roster.filter((r) => r.zone === zone).length >= GROUP_SIZE
+      && entry.zone !== zone) {
+    return; // group full
+  }
+  entry.zone = zone;
+  saveRoster();
+  renderRoster();
+}
+
+function removeEntry(id) {
+  roster = roster.filter((r) => r.id !== id);
+  saveRoster();
+  renderRoster();
+}
+
+function renderRosterCard(r) {
+  const role = r.role ? `${ROLE_ICONS[r.role]} ` : "";
+  const meta = [r.spec, r.cls].filter(Boolean).join(" ") + (r.ilvl ? ` · ${r.ilvl}` : "");
+  const warns = [];
+  if (r.missEnch) warns.push(`✗${r.missEnch}`);
+  if (r.emptySock) warns.push(`◇${r.emptySock}`);
+  return `<div class="rcard" draggable="true" data-id="${esc(r.id)}" style="border-left-color:${r.color}">
+    <span class="rname" style="color:${r.color}">${esc(r.name)}</span>
+    <span class="rmeta">${role}${esc(meta)}</span>
+    ${warns.length ? `<span class="rwarn" title="missing enchants / empty sockets">${warns.join(" ")}</span>` : ""}
+    <button class="rx" type="button" title="Remove from roster">×</button>
+  </div>`;
+}
+
+function renderRoster() {
+  // Bench
+  const bench = rosterPanel.querySelector('[data-zone="bench"]');
+  bench.querySelector(".zone-cards").innerHTML =
+    roster.filter((r) => r.zone === "bench").map(renderRosterCard).join("");
+  const benchN = roster.filter((r) => r.zone === "bench").length;
+  bench.querySelector(".zcount").textContent = benchN ? `(${benchN})` : "";
+
+  // Groups
+  groupsEl.innerHTML = GROUPS.map((g, i) => {
+    const members = roster.filter((r) => r.zone === g);
+    return `<div class="dropzone group ${members.length >= GROUP_SIZE ? "full" : ""}" data-zone="${g}">
+      <h3>Group ${i + 1} <span class="zcount">${members.length}/${GROUP_SIZE}</span></h3>
+      <div class="zone-cards">${members.map(renderRosterCard).join("")}</div>
+    </div>`;
+  }).join("");
+
+  // Header summary: total + role tally
+  const tally = { tank: 0, healer: 0, dps: 0 };
+  for (const r of roster) if (r.role) tally[r.role] += 1;
+  document.getElementById("roster-summary").textContent = roster.length
+    ? `${roster.length} players · ${ROLE_ICONS.tank}${tally.tank} ${ROLE_ICONS.healer}${tally.healer} ${ROLE_ICONS.dps}${tally.dps}`
+    : "empty";
+}
+
+// --- drag & drop wiring (delegated, zones are re-rendered constantly) ------
+rosterPanel.addEventListener("dragstart", (e) => {
+  const card = e.target.closest(".rcard");
+  if (!card) return;
+  e.dataTransfer.setData("text/plain", card.dataset.id);
+  e.dataTransfer.effectAllowed = "move";
+  card.classList.add("dragging");
 });
+rosterPanel.addEventListener("dragend", (e) => {
+  e.target.closest(".rcard")?.classList.remove("dragging");
+});
+rosterPanel.addEventListener("dragover", (e) => {
+  const zone = e.target.closest(".dropzone");
+  if (!zone) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  zone.classList.add("dragover");
+});
+rosterPanel.addEventListener("dragleave", (e) => {
+  e.target.closest(".dropzone")?.classList.remove("dragover");
+});
+rosterPanel.addEventListener("drop", (e) => {
+  const zone = e.target.closest(".dropzone");
+  if (!zone) return;
+  e.preventDefault();
+  zone.classList.remove("dragover");
+  const id = e.dataTransfer.getData("text/plain");
+  if (id) moveEntry(id, zone.dataset.zone);
+});
+rosterPanel.addEventListener("click", (e) => {
+  if (e.target.classList.contains("rx")) {
+    removeEntry(e.target.closest(".rcard").dataset.id);
+  }
+});
+document.getElementById("roster-clear").addEventListener("click", () => {
+  if (roster.length && confirm("Empty the whole roster?")) {
+    roster = [];
+    saveRoster();
+    renderRoster();
+  }
+});
+
+renderRoster();
+
+// Tiny debug hook (used by automated verification; harmless in production).
+window._pvw = { moveEntry, addToRoster };

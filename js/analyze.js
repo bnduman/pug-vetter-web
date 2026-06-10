@@ -1,7 +1,19 @@
 // Pure functions that turn raw Warcraft Logs JSON into a vetting scorecard.
-// Direct port of the Python app/analyze.py (behavior kept identical).
+// Ported from the Python version (pug-vetter), extended with socket math,
+// spec detection and the full gear list.
 import { ENCHANT_NAMES } from "./enchant-names.js";
 import { ENCHANT_SLOTS, NON_ILVL_SLOTS } from "./enchant-rules.js";
+import { ITEM_SOCKETS } from "./item-sockets.js";
+
+export const SLOT_LABELS = [
+  "Head", "Neck", "Shoulder", "Shirt", "Chest", "Belt", "Legs", "Feet",
+  "Wrist", "Hands", "Ring", "Ring", "Trinket", "Trinket", "Back",
+  "Main Hand", "Off Hand", "Ranged", "Tabard",
+];
+
+export const QUALITY_COLORS = {
+  0: "#9d9d9d", 1: "#ffffff", 2: "#1eff00", 3: "#0070dd", 4: "#a335ee", 5: "#ff8000",
+};
 
 export function parseColor(pct) {
   if (pct == null) return { tier: "none", color: "#6b6b6b" };
@@ -39,19 +51,37 @@ export function summarizeZone(zoneName, zoneRankings) {
   return { ...base, cleared, total: encounters.length, best_parse: best, encounters };
 }
 
-// Locate a character's gear array inside a playerDetails blob, or null.
+// The spec a player actually plays: the most frequent spec across their boss
+// rankings (each ranking entry carries the spec it was earned with).
+export function primarySpec(zoneRankingsList) {
+  const tally = new Map();
+  for (const zr of zoneRankingsList) {
+    if (!zr || typeof zr !== "object") continue;
+    for (const r of zr.rankings ?? []) {
+      const spec = r?.spec;
+      if (spec) tally.set(spec, (tally.get(spec) ?? 0) + 1);
+    }
+  }
+  let best = null;
+  let bestN = 0;
+  for (const [spec, n] of tally) if (n > bestN) { best = spec; bestN = n; }
+  return best;
+}
+
+// Locate a character inside a playerDetails blob -> {gear, role} or null.
 // WCL wraps the payload as {"data": {"playerDetails": {tanks, healers, dps}}}.
-export function findPlayerGear(playerDetails, charName) {
+export function findPlayer(playerDetails, charName) {
   let pd = playerDetails;
   if (pd && typeof pd === "object" && pd.data && typeof pd.data === "object") {
     pd = pd.data.playerDetails ?? pd;
   }
   if (!pd || typeof pd !== "object" || Array.isArray(pd)) return null;
   const target = (charName ?? "").toLowerCase();
-  for (const role of ["tanks", "healers", "dps"]) {
-    for (const player of pd[role] ?? []) {
+  const roles = { tanks: "tank", healers: "healer", dps: "dps" };
+  for (const [bucket, role] of Object.entries(roles)) {
+    for (const player of pd[bucket] ?? []) {
       if ((player.name ?? "").toLowerCase() === target) {
-        return player.combatantInfo?.gear ?? [];
+        return { gear: player.combatantInfo?.gear ?? [], role };
       }
     }
   }
@@ -70,8 +100,13 @@ function gearBySlot(gear) {
   return best;
 }
 
-// WCL lists socketed gems but NOT empty sockets — a "did they gem" signal.
-const gemCount = (item) => (item?.gems?.length ?? 0);
+const socketsOf = (item) => (item?.id ? ITEM_SOCKETS[item.id] ?? 0 : 0);
+const gemsOf = (item) => (item?.gems?.length ?? 0);
+// WCL never reports more gems than sockets, but clamp just in case.
+const emptySocketsOf = (item) => Math.max(0, socketsOf(item) - gemsOf(item));
+
+const enchantNameOf = (item) =>
+  ENCHANT_NAMES[item.permanentEnchant] ?? item.permanentEnchantName ?? `#${item.permanentEnchant}`;
 
 export function analyzeEnchants(gear) {
   const bySlot = gearBySlot(gear);
@@ -79,16 +114,13 @@ export function analyzeEnchants(gear) {
   let missingRequired = 0;
   for (const rule of ENCHANT_SLOTS) {
     const item = bySlot.get(rule.slot);
-    const gems = gemCount(item);
+    const gems = gemsOf(item);
     if (!item || !item.id) {
       slots.push({ slot: rule.label, status: "empty", enchant: null, gems, required: rule.required });
       continue;
     }
-    const enchId = item.permanentEnchant ?? 0;
-    if (enchId) {
-      // Client-DB name first: WCL's permanentEnchantName is retail-mangled.
-      const name = ENCHANT_NAMES[enchId] ?? item.permanentEnchantName ?? `#${enchId}`;
-      slots.push({ slot: rule.label, status: "enchanted", enchant: name, gems, required: rule.required });
+    if (item.permanentEnchant) {
+      slots.push({ slot: rule.label, status: "enchanted", enchant: enchantNameOf(item), gems, required: rule.required });
     } else {
       slots.push({ slot: rule.label, status: "missing", enchant: null, gems, required: rule.required });
       if (rule.required) missingRequired += 1;
@@ -96,7 +128,11 @@ export function analyzeEnchants(gear) {
   }
 
   const ilvls = [];
+  let gemsTotal = 0;
+  let socketsTotal = 0;
   for (const [slot, item] of bySlot) {
+    gemsTotal += gemsOf(item);
+    socketsTotal += socketsOf(item);
     if (NON_ILVL_SLOTS.has(slot) || !item.id) continue;
     if (item.itemLevel && item.itemLevel > 1) ilvls.push(item.itemLevel);
   }
@@ -104,8 +140,37 @@ export function analyzeEnchants(gear) {
     ? Math.round((ilvls.reduce((a, b) => a + b, 0) / ilvls.length) * 10) / 10
     : null;
 
-  let gemsTotal = 0;
-  for (const item of bySlot.values()) gemsTotal += gemCount(item);
+  return {
+    slots,
+    missing_required: missingRequired,
+    avg_item_level: avgIlvl,
+    gems_total: gemsTotal,
+    sockets_total: socketsTotal,
+    empty_sockets: Math.max(0, socketsTotal - gemsTotal),
+  };
+}
 
-  return { slots, missing_required: missingRequired, avg_item_level: avgIlvl, gems_total: gemsTotal };
+// The full equipment list for the detailed gear view: one entry per worn slot,
+// in equipment-slot order, with quality/enchant/gem/socket details.
+export function buildGearList(gear) {
+  const bySlot = gearBySlot(gear);
+  const out = [];
+  for (const [slot, item] of [...bySlot.entries()].sort((a, b) => a[0] - b[0])) {
+    if (!item.id) continue; // empty slot
+    out.push({
+      slot,
+      slotLabel: SLOT_LABELS[slot] ?? `Slot ${slot}`,
+      id: item.id,
+      name: item.name ?? `Item ${item.id}`,
+      icon: item.icon ?? null,
+      quality: item.quality ?? 1,
+      itemLevel: item.itemLevel ?? null,
+      enchant: item.permanentEnchant ? enchantNameOf(item) : null,
+      enchantable: ENCHANT_SLOTS.some((r) => r.slot === slot),
+      gems: (item.gems ?? []).map((g) => ({ id: g.id, icon: g.icon ?? null })),
+      sockets: socketsOf(item),
+      emptySockets: emptySocketsOf(item),
+    });
+  }
+  return out;
 }

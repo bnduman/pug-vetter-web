@@ -1,0 +1,24 @@
+Add roster builder, card feed, full gear view, sockets, class/spec
+
+- Results now render as stacked cards: newest search on top, older ones
+  pushed down (replaces the plain-text history list)
+- Class + spec + role on every card (class-colored name, role icon),
+  derived from WCL classID, ranking specs, and playerDetails role bucket
+- Empty gem socket counting: js/item-sockets.js maps itemID -> socket
+  count from the Anniversary client's ItemSparse table (wago.tools,
+  build 2.5.5.67852), since WCL reports socketed gems but never empty
+  sockets. Summary shows gems/sockets filled and flags empties
+- Full gear view per player (collapsible): every worn item with icon,
+  quality-colored name linked to Wowhead TBC, ilvl, TBC-correct enchant,
+  gem icons and empty-socket markers
+- Roster builder: "Add to roster" button on each card -> bench, then
+  drag & drop between bench and 5 groups of 5 (Wowhead-style), with
+  per-group counts, role tally, warning badges for missing enchants /
+  empty sockets, and localStorage persistence
+- Two-column layout (results feed + sticky roster panel), responsive
+
+Verified in-browser via the preview harness: live lookup renders card,
+add-to-roster + group move + persistence all confirmed against real
+Thunderstrike-EU data.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
