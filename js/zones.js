@@ -18,7 +18,10 @@ const excluded = (name) =>
   CONFIG.EXCLUDE_ZONE_PATTERNS.some((p) => (name ?? "").toLowerCase().includes(p.toLowerCase()));
 
 export async function getRaidZones() {
-  const cached = cacheGet("wcl_raid_zones", CONFIG.ZONES_TTL_SECONDS);
+  // Config values are part of the key so edits to js/config.js take effect
+  // immediately instead of being masked by a day-old cache entry.
+  const cacheKey = `wcl_raid_zones/${CONFIG.CURRENT_EXPANSION_ID}/${CONFIG.RAID_ZONE_IDS.join(",")}`;
+  const cached = cacheGet(cacheKey, CONFIG.ZONES_TTL_SECONDS);
   if (cached) return cached;
 
   const data = await postGraphQL(EXPANSIONS_QUERY);
@@ -58,6 +61,6 @@ export async function getRaidZones() {
     }
   }
 
-  cacheSet("wcl_raid_zones", raids);
+  cacheSet(cacheKey, raids);
   return raids;
 }

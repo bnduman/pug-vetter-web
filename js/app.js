@@ -29,7 +29,13 @@ form.addEventListener("submit", (e) => {
   if (name) lookup(name);
 });
 
+let lookupInFlight = false;
+
 async function lookup(name) {
+  // The disabled button doesn't stop Enter-key submits; this does. Each
+  // duplicate lookup would burn shared WCL rate-limit points for nothing.
+  if (lookupInFlight) return;
+  lookupInFlight = true;
   setStatus(`Looking up ${name}…`);
   btn.disabled = true;
   try {
@@ -39,6 +45,7 @@ async function lookup(name) {
   } catch (err) {
     setStatus(err instanceof WCLError ? err.message : `Request failed: ${err}`, true);
   } finally {
+    lookupInFlight = false;
     btn.disabled = false;
   }
 }
@@ -157,7 +164,7 @@ function renderGear(gear) {
       const img = gem.icon
         ? `<img src="${ICON_BASE}${esc(gem.icon)}" alt="gem" loading="lazy" onerror="this.style.visibility='hidden'">`
         : "◆";
-      return `<a href="${WOWHEAD}${gem.id}" target="_blank" rel="noopener" title="gem">${img}</a>`;
+      return `<a href="${WOWHEAD}${Number(gem.id)}" target="_blank" rel="noopener" title="gem">${img}</a>`;
     }).join("");
     const emptySock = g.emptySockets
       ? `<span class="gsock-empty" title="${g.emptySockets} empty socket(s)">${"◇".repeat(g.emptySockets)}</span>`
@@ -166,7 +173,7 @@ function renderGear(gear) {
     return `<div class="gear-row">
       ${icon}
       <span class="gslot">${esc(g.slotLabel)}</span>
-      <a class="gname" style="color:${color}" href="${WOWHEAD}${g.id}" target="_blank" rel="noopener">${esc(g.name)}</a>
+      <a class="gname" style="color:${color}" href="${WOWHEAD}${Number(g.id)}" target="_blank" rel="noopener">${esc(g.name)}</a>
       <span class="gilvl">${g.itemLevel ?? ""}</span>
       <span class="gextra">${ench}${gemBlock}</span>
     </div>`;
@@ -293,7 +300,10 @@ rosterPanel.addEventListener("dragover", (e) => {
   zone.classList.add("dragover");
 });
 rosterPanel.addEventListener("dragleave", (e) => {
-  e.target.closest(".dropzone")?.classList.remove("dragover");
+  const zone = e.target.closest(".dropzone");
+  // dragleave also fires when entering a child of the zone; only clear the
+  // highlight when the pointer actually left the zone.
+  if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove("dragover");
 });
 rosterPanel.addEventListener("drop", (e) => {
   const zone = e.target.closest(".dropzone");

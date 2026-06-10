@@ -21,10 +21,11 @@ in [js/config.js](js/config.js) (currently Thunderstrike-EU).
 
 ## Run locally
 
-ES modules don't load from `file://` — serve the folder with any static server:
+On Windows just double-click **`start-local.bat`**. Otherwise: ES modules
+don't load from `file://`, so serve the folder with any static server:
 
 ```bash
-python -m http.server 8080      # then open http://localhost:8080
+python -m http.server 8090      # then open http://localhost:8090
 ```
 
 Live smoke test of the lookup logic (Node 18+):
