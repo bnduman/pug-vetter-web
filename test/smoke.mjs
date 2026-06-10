@@ -1,6 +1,8 @@
 // Live smoke test of the client-side modules under Node (which has fetch but
 // no CORS restrictions — CORS itself was verified separately against the API).
 // Usage: node test/smoke.mjs [name]
+import { CONFIG } from "../js/config.js";
+import { getAttendanceMap } from "../js/attendance.js";
 import { vet } from "../js/vet.js";
 
 const name = process.argv[2] ?? "sahmeran";
@@ -49,5 +51,19 @@ if (d.gear) {
     if (!g.name || g.quality == null) fail(`gear item missing name/quality: ${JSON.stringify(g)}`);
     if (g.emptySockets < 0) fail("negative empty sockets");
   }
+}
+
+// Guild attendance (only when a guild is configured).
+if (CONFIG.GUILD_NAME) {
+  const map = await getAttendanceMap();
+  if (!map) fail(`guild "${CONFIG.GUILD_NAME}" not found on WCL`);
+  const players = Object.values(map.players);
+  if (!players.length) fail("attendance map empty");
+  const regulars = players.filter((p) => p.count >= 2)
+    .sort((a, b) => b.count - a.count).slice(0, 5);
+  console.log(`\nattendance: ${map.reportsScanned} reports, ${players.length} distinct players`);
+  console.log("top regulars: " + regulars.map((p) => `${p.name}(${p.count})`).join(", "));
+  const me = map.players[name.toLowerCase()];
+  console.log(`${d.name} raided with ${map.guildName}: ${me ? me.count + "x" : "never"}`);
 }
 console.log("\nSMOKE OK");

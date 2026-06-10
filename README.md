@@ -6,6 +6,9 @@ raid leaders. Type a character name and get, at a glance:
 - **Raid clears** (boss kill counts per current raid)
 - **Best performance average** per raid, colour-coded like Warcraft Logs
 - **Enchant check** with **TBC-correct enchant names**, gem counts, avg ilvl
+- **Guild history** — how many times they've raided with *your* guild before
+  (from WCL guild attendance), plus a **Guild regulars** list of repeat raiders
+- **Roster builder** — add vetted players, drag them into groups of 5
 
 No server, no build step — plain HTML + ES modules. The browser talks straight
 to the [Warcraft Logs](https://classic.warcraftlogs.com) v2 API (it sends CORS

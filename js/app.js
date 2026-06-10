@@ -1,6 +1,7 @@
 "use strict";
 import { CONFIG } from "./config.js";
 import { QUALITY_COLORS } from "./analyze.js";
+import { getAttendanceMap } from "./attendance.js";
 import { ROLE_ICONS } from "./wcl-classes.js";
 import { vet } from "./vet.js";
 import { WCLError } from "./wcl.js";
@@ -74,9 +75,31 @@ function addCard(data) {
     card.querySelector(".add-roster")?.addEventListener("click", () => {
       addToRoster(data);
     });
+    fillGuildLine(card, data.name);
   }
   feedEl.prepend(card);
   while (feedEl.children.length > FEED_CAP) feedEl.lastChild.remove();
+}
+
+// Fills the "raided with our guild N times" line on a card, asynchronously so
+// the card itself never waits on the attendance fetch.
+async function fillGuildLine(card, charName) {
+  const line = card.querySelector(".guild-line");
+  if (!line) return;
+  try {
+    const map = await getAttendanceMap();
+    if (!map) { line.remove(); return; }
+    const entry = map.players[charName.toLowerCase()];
+    if (entry) {
+      const last = entry.lastTs ? new Date(entry.lastTs).toLocaleDateString() : "?";
+      line.innerHTML = `🤝 Raided with <b>${esc(map.guildName)}</b> ${entry.count}× · last ${last}`;
+      line.classList.add("known");
+    } else {
+      line.textContent = `No shared raids with ${map.guildName} in the last ${map.reportsScanned} logs.`;
+    }
+  } catch {
+    line.remove(); // attendance is a bonus; never break the card over it
+  }
 }
 
 function renderNoData(data) {
@@ -115,6 +138,7 @@ function renderResult(data) {
     </div>
     <div class="meta">${esc(data.realm)} · ${esc(data.region)} &nbsp;·&nbsp; last logged raid: ${lastLog}
       &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}</div>
+    ${CONFIG.GUILD_NAME ? '<div class="meta guild-line">checking guild raid history…</div>' : ""}
 
     <div class="section-title">Raid clears &amp; best perf. average</div>
     ${raidRows || '<div class="meta">No raid ranking data.</div>'}
@@ -327,6 +351,58 @@ document.getElementById("roster-clear").addEventListener("click", () => {
 });
 
 renderRoster();
+
+// ===========================================================================
+// Guild regulars: who keeps showing up in our guild's logs
+// ===========================================================================
+
+const regularsBtn = document.getElementById("regulars-btn");
+if (CONFIG.GUILD_NAME) regularsBtn.hidden = false;
+
+regularsBtn.addEventListener("click", async () => {
+  regularsBtn.disabled = true;
+  setStatus("Loading guild raid history…");
+  try {
+    const map = await getAttendanceMap();
+    if (!map) {
+      setStatus(`Guild "${CONFIG.GUILD_NAME}" not found on Warcraft Logs — check js/config.js.`, true);
+      return;
+    }
+    setStatus("");
+    const regulars = Object.values(map.players)
+      .filter((p) => p.count >= 2)
+      .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs);
+
+    feedEl.querySelector('[data-card="__regulars"]')?.remove();
+    const card = document.createElement("div");
+    card.className = "card flash";
+    card.dataset.card = "__regulars";
+    const rows = regulars.map((p) => `
+      <div class="regular-row">
+        <span class="regular-link" data-name="${esc(p.name)}">${esc(p.name)}</span>
+        <span class="rcount">${p.count}× </span>
+        <span class="rlast">last ${new Date(p.lastTs).toLocaleDateString()}</span>
+      </div>`).join("");
+    card.innerHTML = `
+      <div class="card-top"><h2>🤝 ${esc(map.guildName)} regulars</h2></div>
+      <div class="meta">${regulars.length} players appear 2+ times across the last
+        ${map.reportsScanned} guild logs. Click a name to vet them.</div>
+      <div class="regulars-list">${rows || '<div class="meta">No repeat raiders found yet.</div>'}</div>`;
+    feedEl.prepend(card);
+  } catch (err) {
+    setStatus(err instanceof WCLError ? err.message : `Request failed: ${err}`, true);
+  } finally {
+    regularsBtn.disabled = false;
+  }
+});
+
+// Click a name in the regulars list -> vet them.
+feedEl.addEventListener("click", (e) => {
+  const link = e.target.closest(".regular-link");
+  if (!link) return;
+  document.getElementById("name").value = link.dataset.name;
+  lookup(link.dataset.name);
+});
 
 // Tiny debug hook (used by automated verification; harmless in production).
 window._pvw = { moveEntry, addToRoster };

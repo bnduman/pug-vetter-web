@@ -58,6 +58,13 @@ form#vet-form button {
 }
 form#vet-form button:hover { filter: brightness(1.08); }
 form#vet-form button:disabled { opacity: .55; cursor: default; }
+form#vet-form button.secondary {
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--line);
+  font-weight: 600;
+}
+form#vet-form button.secondary:hover { border-color: var(--accent); }
 
 .status { min-height: 20px; margin-bottom: 12px; color: var(--muted); font-size: 14px; }
 .status.error { color: var(--bad); }
@@ -177,6 +184,23 @@ details.gear-details summary {
 .ggems { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 .ggems img { width: 16px; height: 16px; border-radius: 3px; }
 .gsock-empty { color: var(--bad); font-size: 15px; letter-spacing: 1px; }
+
+/* --- guild attendance ---------------------------------------------------- */
+.guild-line.known { color: var(--accent); }
+.regulars-list { display: flex; flex-direction: column; }
+.regular-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.regular-link { color: var(--accent); font-weight: 600; cursor: pointer; }
+.regular-link:hover { text-decoration: underline; }
+.regular-row .rcount { font-weight: 700; font-variant-numeric: tabular-nums; }
+.regular-row .rlast { color: var(--muted); font-size: 12.5px; }
 
 .empty-state, .no-data {
   background: var(--panel);
