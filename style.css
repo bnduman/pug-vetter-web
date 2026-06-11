@@ -91,6 +91,18 @@ form#vet-form button.secondary:hover { border-color: var(--accent); }
   font-size: 13px;
   white-space: nowrap;
 }
+.gs-badge {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.gscore { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+
 .add-roster {
   margin-left: auto;
   background: var(--panel-2);

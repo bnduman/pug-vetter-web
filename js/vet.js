@@ -4,6 +4,7 @@ import { CONFIG } from "./config.js";
 import {
   analyzeEnchants, buildGearList, findPlayer, parseColor, primarySpec, summarizeZone,
 } from "./analyze.js";
+import { computeGearScore } from "./gearscore.js";
 import { CLASS_COLORS, CLASS_NAMES } from "./wcl-classes.js";
 import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 import { getRaidZones } from "./zones.js";
@@ -57,8 +58,8 @@ async function fetchGearInfo(reportCode, fightIds, charName) {
 export async function vet(name) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  // "vet2" — cache key versioned; bump when the result shape changes.
-  const key = `vet2/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet3" — cache key versioned; bump when the result shape changes.
+  const key = `vet3/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 
@@ -99,6 +100,10 @@ export async function vet(name) {
   }
 
   const className = CLASS_NAMES[char.classID] ?? null;
+  // Also stamps a per-item `gs` onto each gear entry for the detail view.
+  const gearscore = gearInfo?.gear?.length
+    ? computeGearScore(gearInfo.gear, className)
+    : null;
   const result = {
     found: true,
     name: char.name ?? name,
@@ -111,6 +116,7 @@ export async function vet(name) {
     raids,
     enchants: gearInfo?.enchants ?? null,
     gear: gearInfo?.gear ?? null,
+    gearscore,
     last_log: lastLog,
   };
   cacheSet(key, result);

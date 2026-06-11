@@ -11,7 +11,7 @@ const d = await vet(name);
 console.log(`${d.name} @ ${d.realm}-${d.region} | found=${d.found}`);
 if (!d.found) process.exit(0);
 
-console.log(`class=${d.class} spec=${d.spec} role=${d.role}`);
+console.log(`class=${d.class} spec=${d.spec} role=${d.role} | GearScore=${d.gearscore}`);
 for (const r of d.raids) {
   const bp = r.best_parse == null ? "-" : r.best_parse.toFixed(1);
   console.log(`  ${r.name.padEnd(24)} ${r.cleared}/${r.total}  perf avg ${bp} [${r.tier}]`);
@@ -51,6 +51,12 @@ if (d.gear) {
     if (!g.name || g.quality == null) fail(`gear item missing name/quality: ${JSON.stringify(g)}`);
     if (g.emptySockets < 0) fail("negative empty sockets");
   }
+  // GearScore: plausible total, and the per-item scores must sum to it.
+  if (d.gearscore == null || d.gearscore < 500 || d.gearscore > 5000) {
+    fail(`implausible GearScore: ${d.gearscore}`);
+  }
+  const sum = d.gear.reduce((n, g) => n + (g.gs ?? 0), 0);
+  if (sum !== d.gearscore) fail(`per-item gs sum ${sum} != total ${d.gearscore}`);
 }
 
 // Guild attendance (only when a guild is configured).

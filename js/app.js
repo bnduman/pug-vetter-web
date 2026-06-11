@@ -2,6 +2,7 @@
 import { CONFIG } from "./config.js";
 import { QUALITY_COLORS } from "./analyze.js";
 import { getAttendanceMap } from "./attendance.js";
+import { gearScoreColor } from "./gearscore.js";
 import { ROLE_ICONS } from "./wcl-classes.js";
 import { vet } from "./vet.js";
 import { WCLError } from "./wcl.js";
@@ -132,10 +133,16 @@ function renderResult(data) {
     </div>`;
   }).join("");
 
+  const gsBadge = data.gearscore != null
+    ? `<span class="gs-badge" style="color:${gearScoreColor(data.gearscore)}"
+         title="GearScore (classic GearScoreLite formula)">GS ${data.gearscore}</span>`
+    : "";
+
   return `
     <div class="card-top">
       <h2 style="color:${data.classColor}">${esc(data.name)}</h2>
       <span class="spec-badge">${roleIcon}${esc(specTxt)}</span>
+      ${gsBadge}
       <button class="add-roster" type="button">＋ Add to roster</button>
     </div>
     <div class="meta">${esc(data.realm)} · ${esc(data.region)} &nbsp;·&nbsp; last logged raid: ${lastLog}
@@ -196,12 +203,13 @@ function renderGear(gear) {
       ? `<span class="gsock-empty" title="${g.emptySockets} empty socket(s)">${"◇".repeat(g.emptySockets)}</span>`
       : "";
     const gemBlock = (gems || emptySock) ? `<span class="ggems">${gems}${emptySock}</span>` : "";
+    const gs = g.gs ? `<span class="gscore" title="item GearScore">${g.gs}</span>` : "";
     return `<div class="gear-row">
       ${icon}
       <span class="gslot">${esc(g.slotLabel)}</span>
       <a class="gname" style="color:${color}" href="${WOWHEAD}${Number(g.id)}" target="_blank" rel="noopener">${esc(g.name)}</a>
       <span class="gilvl">${g.itemLevel ?? ""}</span>
-      <span class="gextra">${ench}${gemBlock}</span>
+      <span class="gextra">${ench}${gemBlock}${gs}</span>
     </div>`;
   }).join("");
   return `<details class="gear-details"><summary>Full gear (${gear.length} items)</summary>
@@ -237,6 +245,7 @@ function addToRoster(data) {
       spec: data.spec,
       role: data.role,
       ilvl: data.enchants?.avg_item_level ?? null,
+      gs: data.gearscore ?? null,
       missEnch: data.enchants?.missing_required ?? 0,
       emptySock: data.enchants?.empty_sockets ?? 0,
       zone: "bench",
@@ -270,7 +279,8 @@ function removeEntry(id) {
 
 function renderRosterCard(r) {
   const role = r.role ? `${ROLE_ICONS[r.role]} ` : "";
-  const meta = [r.spec, r.cls].filter(Boolean).join(" ") + (r.ilvl ? ` · ${r.ilvl}` : "");
+  const meta = [r.spec, r.cls].filter(Boolean).join(" ")
+    + (r.gs ? ` · GS ${r.gs}` : (r.ilvl ? ` · ${r.ilvl}` : ""));
   const warns = [];
   if (r.missEnch) warns.push(`✗${r.missEnch}`);
   if (r.emptySock) warns.push(`◇${r.emptySock}`);
