@@ -135,7 +135,7 @@ function renderResult(data) {
 
   const gsBadge = data.gearscore != null
     ? `<span class="gs-badge" style="color:${gearScoreColor(data.gearscore)}"
-         title="GearScore (classic GearScoreLite formula)">GS ${data.gearscore}</span>`
+         title="GearScore — same calculation as classic-armory.org (computed from their last logged gear)">GS ${data.gearscore}</span>`
     : "";
 
   return `

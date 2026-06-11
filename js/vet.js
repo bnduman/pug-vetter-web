@@ -58,8 +58,8 @@ async function fetchGearInfo(reportCode, fightIds, charName) {
 export async function vet(name) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  // "vet3" — cache key versioned; bump when the result shape changes.
-  const key = `vet3/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet4" — cache key versioned; bump when the result shape/values change.
+  const key = `vet4/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 

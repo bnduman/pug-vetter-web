@@ -1,10 +1,15 @@
-// GearScore — the classic single-number gear summary, computed with the
-// original GearScoreLite formula and constants (verbatim from the addon:
-// https://github.com/warmane-wotlk/GearScoreLite) so the numbers match what
-// players know from armory sites and the in-game addon.
+// GearScore — the classic single-number gear summary, computed to match
+// classic-armory.org exactly (verified item-for-item on two live characters:
+// Sahmeran 1705, Rannan 1794).
+//
+// It's the GearScoreLite formula (https://github.com/warmane-wotlk/GearScoreLite)
+// with one TBC correction also used by classic-armory: the addon's WotLK-era
+// "use harsher constants above ilvl 120" switch is dropped — the low-bracket
+// constants apply to ALL items. (The switch was calibrated for WotLK ilvls and
+// made TBC T5/T6 score barely above Karazhan gear.)
 //
 // Per item: floor(((itemLevel - A) / B) * SlotMod * 1.8618 * qualityScale)
-//   - constants A/B depend on quality, with a different table above ilvl 120
+//   - constants A/B depend on quality
 //   - legendaries score as epic * 1.3; grey/white items are worth ~nothing
 //   - hunters: ranged weapon weighted up (5.3224), melee down (0.3164)
 import { ITEM_2H } from "./item-2h.js";
@@ -31,8 +36,7 @@ const SLOT_MODS = {
   17: 0.3164, // Ranged / relic
 };
 
-const FORMULA_A = { 4: { a: 91.45, b: 0.65 }, 3: { a: 81.375, b: 0.8125 }, 2: { a: 73.0, b: 1.0 } };
-const FORMULA_B = { 4: { a: 26.0, b: 1.2 }, 3: { a: 0.75, b: 1.8 }, 2: { a: 8.0, b: 2.0 }, 1: { a: 0.0, b: 2.25 } };
+const FORMULA = { 4: { a: 26.0, b: 1.2 }, 3: { a: 0.75, b: 1.8 }, 2: { a: 8.0, b: 2.0 }, 1: { a: 0.0, b: 2.25 } };
 const SCALE = 1.8618;
 
 // One gear-list entry (from analyze.buildGearList) -> its GearScore.
@@ -52,8 +56,7 @@ export function itemGearScore(entry, className) {
   else if (quality < 2) { qualityScale = 0.005; quality = 1; }  // grey/white
 
   const ilvl = entry.itemLevel ?? 0;
-  const table = ilvl > 120 ? FORMULA_A : FORMULA_B;
-  const c = table[quality] ?? FORMULA_B[1];
+  const c = FORMULA[quality] ?? FORMULA[1];
   return Math.max(0, Math.floor(((ilvl - c.a) / c.b) * mod * SCALE * qualityScale));
 }
 
@@ -67,12 +70,12 @@ export function computeGearScore(gearList, className) {
   return total;
 }
 
-// Rough TBC-era color bands (the addon's bands were WotLK-scaled; these are
-// tuned so fresh-70 blues read green and SWP best-in-slot reads orange).
+// Rough TBC-era color bands, tuned for this scale: fresh-70 blues read green,
+// Kara/T4-T5 mixes read blue, T6 purple, Sunwell best-in-slot orange.
 export function gearScoreColor(gs) {
-  if (gs >= 2700) return "#ff8000";
-  if (gs >= 2200) return "#a335ee";
-  if (gs >= 1700) return "#0070dd";
+  if (gs >= 2600) return "#ff8000";
+  if (gs >= 2100) return "#a335ee";
+  if (gs >= 1650) return "#0070dd";
   if (gs >= 1200) return "#1eff00";
   return "#9d9d9d";
 }
