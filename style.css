@@ -187,6 +187,29 @@ details.gear-details summary {
 
 /* --- guild attendance ---------------------------------------------------- */
 .guild-line.known { color: var(--accent); }
+.att-count {
+  cursor: pointer;
+  font-weight: 700;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.att-count:hover { color: var(--accent); }
+.raid-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 10px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.raid-log-list a { color: var(--accent); text-decoration: none; }
+.raid-log-list a:hover { text-decoration: underline; }
+.raid-log-list span { color: var(--muted); }
 .regulars-list { display: flex; flex-direction: column; }
 .regular-row {
   display: grid;

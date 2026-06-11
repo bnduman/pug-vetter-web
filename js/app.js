@@ -92,7 +92,9 @@ async function fillGuildLine(card, charName) {
     const entry = map.players[charName.toLowerCase()];
     if (entry) {
       const last = entry.lastTs ? new Date(entry.lastTs).toLocaleDateString() : "?";
-      line.innerHTML = `🤝 Raided with <b>${esc(map.guildName)}</b> ${entry.count}× · last ${last}`;
+      line.innerHTML = `🤝 Raided with <b>${esc(map.guildName)}</b> `
+        + `<span class="att-count" data-name="${esc(charName.toLowerCase())}" `
+        + `title="Show every shared raid log">${entry.count}×</span> · last ${last}`;
       line.classList.add("known");
     } else {
       line.textContent = `No shared raids with ${map.guildName} in the last ${map.reportsScanned} logs.`;
@@ -380,7 +382,8 @@ regularsBtn.addEventListener("click", async () => {
     const rows = regulars.map((p) => `
       <div class="regular-row">
         <span class="regular-link" data-name="${esc(p.name)}">${esc(p.name)}</span>
-        <span class="rcount">${p.count}× </span>
+        <span class="rcount att-count" data-name="${esc(p.name.toLowerCase())}"
+              title="Show every shared raid log">${p.count}×</span>
         <span class="rlast">last ${new Date(p.lastTs).toLocaleDateString()}</span>
       </div>`).join("");
     card.innerHTML = `
@@ -402,6 +405,32 @@ feedEl.addEventListener("click", (e) => {
   if (!link) return;
   document.getElementById("name").value = link.dataset.name;
   lookup(link.dataset.name);
+});
+
+// Click a "22×" count (card guild-line or regulars row) -> toggle the list of
+// every shared raid log, each linking to the actual report on Warcraft Logs.
+const WCL_REPORT = "https://classic.warcraftlogs.com/reports/";
+feedEl.addEventListener("click", async (e) => {
+  const count = e.target.closest(".att-count");
+  if (!count) return;
+  const anchor = count.closest(".regular-row") ?? count.closest(".guild-line");
+  if (!anchor) return;
+  const existing = anchor.nextElementSibling;
+  if (existing?.classList.contains("raid-log-list")) { existing.remove(); return; }
+
+  const map = await getAttendanceMap().catch(() => null);
+  const entry = map?.players[count.dataset.name];
+  if (!entry?.raids?.length) return;
+
+  const list = document.createElement("div");
+  list.className = "raid-log-list";
+  list.innerHTML = entry.raids.map((r) => {
+    const label = `${new Date(r.ts).toLocaleDateString()} · ${esc(r.zone)}`;
+    return r.code
+      ? `<a href="${WCL_REPORT}${encodeURIComponent(r.code)}" target="_blank" rel="noopener">${label} ↗</a>`
+      : `<span>${label}</span>`;
+  }).join("");
+  anchor.after(list);
 });
 
 // Tiny debug hook (used by automated verification; harmless in production).

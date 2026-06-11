@@ -65,5 +65,14 @@ if (CONFIG.GUILD_NAME) {
   console.log("top regulars: " + regulars.map((p) => `${p.name}(${p.count})`).join(", "));
   const me = map.players[name.toLowerCase()];
   console.log(`${d.name} raided with ${map.guildName}: ${me ? me.count + "x" : "never"}`);
+  // Per-player raid log list (powers the clickable "22x" -> log list UI).
+  const top = regulars[0];
+  if (top) {
+    if (!Array.isArray(top.raids) || top.raids.length !== top.count) fail("raids list != count");
+    if (top.raids.some((r) => !r.ts)) fail("raid entry missing timestamp");
+    const linked = top.raids.filter((r) => r.code).length;
+    console.log(`${top.name}'s raids: ${top.raids.length} entries, ${linked} with report links; newest: `
+      + top.raids.slice(0, 3).map((r) => `${new Date(r.ts).toISOString().slice(0, 10)} ${r.zone} [${r.code}]`).join(", "));
+  }
 }
 console.log("\nSMOKE OK");

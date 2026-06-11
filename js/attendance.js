@@ -14,6 +14,7 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!, $page: Int!)
         per_page
         current_page
         data {
+          code
           startTime
           zone { name }
           players { name presence }
@@ -26,11 +27,13 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!, $page: Int!)
 const slugify = (realm) =>
   (realm ?? "").trim().toLowerCase().replace(/'/g, "").replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "");
 
-// -> { guildName, reportsScanned, players: { nameLower: {name, count, lastTs} } }
+// -> { guildName, reportsScanned, players: { nameLower:
+//      {name, count, lastTs, raids: [{code, ts, zone}] (newest first)} } }
 // or null when no guild is configured / the guild can't be found.
 export async function getAttendanceMap() {
   if (!CONFIG.GUILD_NAME) return null;
-  const key = `guild_att/${CONFIG.GUILD_REGION}/${slugify(CONFIG.GUILD_REALM)}/${CONFIG.GUILD_NAME.toLowerCase()}`;
+  // "att2": key versioned; bump when the cached shape changes.
+  const key = `guild_att2/${CONFIG.GUILD_REGION}/${slugify(CONFIG.GUILD_REALM)}/${CONFIG.GUILD_NAME.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.ATTENDANCE_TTL_SECONDS);
   if (cached) return cached;
 
@@ -54,9 +57,14 @@ export async function getAttendanceMap() {
       for (const p of report.players ?? []) {
         if (!p?.name) continue;
         const k = p.name.toLowerCase();
-        const entry = players[k] ?? { name: p.name, count: 0, lastTs: 0 };
+        const entry = players[k] ?? { name: p.name, count: 0, lastTs: 0, raids: [] };
         entry.count += 1;
         entry.lastTs = Math.max(entry.lastTs, report.startTime ?? 0);
+        entry.raids.push({
+          code: report.code ?? null,
+          ts: report.startTime ?? 0,
+          zone: report.zone?.name ?? "?",
+        });
         players[k] = entry;
       }
     }
@@ -64,6 +72,9 @@ export async function getAttendanceMap() {
     if (!att || seen >= (att.total ?? 0)) break; // no more pages
   }
 
+  for (const entry of Object.values(players)) {
+    entry.raids.sort((a, b) => b.ts - a.ts); // newest first
+  }
   const result = { guildName, reportsScanned, players };
   cacheSet(key, result);
   return result;
