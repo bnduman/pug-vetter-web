@@ -1,7 +1,7 @@
 "use strict";
 import { CONFIG } from "./config.js";
 import { QUALITY_COLORS } from "./analyze.js";
-import { getAttendanceMap } from "./attendance.js";
+import { getCoraidMap } from "./attendance.js";
 import { gearScoreColor } from "./gearscore.js";
 import { ROLE_ICONS } from "./wcl-classes.js";
 import { vet } from "./vet.js";
@@ -82,23 +82,34 @@ function addCard(data) {
   while (feedEl.children.length > FEED_CAP) feedEl.lastChild.remove();
 }
 
-// Fills the "raided with our guild N times" line on a card, asynchronously so
-// the card itself never waits on the attendance fetch.
+// Fills the "raided with me N times" line on a card, asynchronously so the
+// card itself never waits on the attendance fetch.
 async function fillGuildLine(card, charName) {
   const line = card.querySelector(".guild-line");
   if (!line) return;
   try {
-    const map = await getAttendanceMap();
-    if (!map) { line.remove(); return; }
-    const entry = map.players[charName.toLowerCase()];
+    const co = await getCoraidMap();
+    if (!co) { line.remove(); return; }
+    const meKey = (CONFIG.ME_NAME || "").toLowerCase();
+    if (meKey && charName.toLowerCase() === meKey) {
+      line.textContent = `⭐ This is ${co.meName} — your reference character.`;
+      line.classList.add("known");
+      return;
+    }
+    if (!co.mePresent) {
+      line.textContent = `${CONFIG.ME_NAME} isn't in ${co.guildName}'s logs — set ME_NAME in config.`;
+      return;
+    }
+    const entry = co.players[charName.toLowerCase()];
     if (entry) {
       const last = entry.lastTs ? new Date(entry.lastTs).toLocaleDateString() : "?";
-      line.innerHTML = `🤝 Raided with <b>${esc(map.guildName)}</b> `
+      line.innerHTML = `🤝 Raided with <b>${esc(co.meName)}</b> `
         + `<span class="att-count" data-name="${esc(charName.toLowerCase())}" `
-        + `title="Show every shared raid log">${entry.count}×</span> · last ${last}`;
+        + `title="Show every shared raid log">${entry.withMe}×</span>`
+        + ` of ${co.meRaidCount} · last ${last}`;
       line.classList.add("known");
     } else {
-      line.textContent = `No shared raids with ${map.guildName} in the last ${map.reportsScanned} logs.`;
+      line.textContent = `No shared raids with ${co.meName} in the last ${co.reportsScanned} logs.`;
     }
   } catch {
     line.remove(); // attendance is a bonus; never break the card over it
@@ -373,17 +384,21 @@ if (CONFIG.GUILD_NAME) regularsBtn.hidden = false;
 
 regularsBtn.addEventListener("click", async () => {
   regularsBtn.disabled = true;
-  setStatus("Loading guild raid history…");
+  setStatus("Loading raid history…");
   try {
-    const map = await getAttendanceMap();
-    if (!map) {
+    const co = await getCoraidMap();
+    if (!co) {
       setStatus(`Guild "${CONFIG.GUILD_NAME}" not found on Warcraft Logs — check js/config.js.`, true);
       return;
     }
+    if (!co.mePresent) {
+      setStatus(`${CONFIG.ME_NAME} isn't in ${co.guildName}'s logs — check ME_NAME in js/config.js.`, true);
+      return;
+    }
     setStatus("");
-    const regulars = Object.values(map.players)
-      .filter((p) => p.count >= 2)
-      .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs);
+    const regulars = Object.values(co.players)
+      .filter((p) => p.withMe >= 2)
+      .sort((a, b) => b.withMe - a.withMe || b.lastTs - a.lastTs);
 
     feedEl.querySelector('[data-card="__regulars"]')?.remove();
     const card = document.createElement("div");
@@ -393,14 +408,14 @@ regularsBtn.addEventListener("click", async () => {
       <div class="regular-row">
         <span class="regular-link" data-name="${esc(p.name)}">${esc(p.name)}</span>
         <span class="rcount att-count" data-name="${esc(p.name.toLowerCase())}"
-              title="Show every shared raid log">${p.count}×</span>
+              title="Show every shared raid log">${p.withMe}×</span>
         <span class="rlast">last ${new Date(p.lastTs).toLocaleDateString()}</span>
       </div>`).join("");
     card.innerHTML = `
-      <div class="card-top"><h2>🤝 ${esc(map.guildName)} regulars</h2></div>
-      <div class="meta">${regulars.length} players appear 2+ times across the last
-        ${map.reportsScanned} guild logs. Click a name to vet them.</div>
-      <div class="regulars-list">${rows || '<div class="meta">No repeat raiders found yet.</div>'}</div>`;
+      <div class="card-top"><h2>🤝 ${esc(co.meName)}'s regulars</h2></div>
+      <div class="meta">${regulars.length} players have raided with ${esc(co.meName)} 2+ times
+        (across ${co.meRaidCount} of their logged raids). Click a name to vet them.</div>
+      <div class="regulars-list">${rows || '<div class="meta">No repeat co-raiders found yet.</div>'}</div>`;
     feedEl.prepend(card);
   } catch (err) {
     setStatus(err instanceof WCLError ? err.message : `Request failed: ${err}`, true);
@@ -428,13 +443,13 @@ feedEl.addEventListener("click", async (e) => {
   const existing = anchor.nextElementSibling;
   if (existing?.classList.contains("raid-log-list")) { existing.remove(); return; }
 
-  const map = await getAttendanceMap().catch(() => null);
-  const entry = map?.players[count.dataset.name];
-  if (!entry?.raids?.length) return;
+  const co = await getCoraidMap().catch(() => null);
+  const entry = co?.players[count.dataset.name];
+  if (!entry?.shared?.length) return;
 
   const list = document.createElement("div");
   list.className = "raid-log-list";
-  list.innerHTML = entry.raids.map((r) => {
+  list.innerHTML = entry.shared.map((r) => {
     const label = `${new Date(r.ts).toLocaleDateString()} · ${esc(r.zone)}`;
     return r.code
       ? `<a href="${WCL_REPORT}${encodeURIComponent(r.code)}" target="_blank" rel="noopener">${label} ↗</a>`

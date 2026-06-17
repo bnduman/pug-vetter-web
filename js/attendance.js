@@ -79,3 +79,40 @@ export async function getAttendanceMap() {
   cacheSet(key, result);
   return result;
 }
+
+// Re-aggregate attendance relative to ONE character ("me"): for every other
+// player, how many of *my* logged raids they also attended.
+// -> { guildName, meName, mePresent, meRaidCount, reportsScanned,
+//      players: { nameLower: {name, withMe, shared:[{code,ts,zone}], lastTs} } }
+// or null when no guild is configured / found.
+export async function getCoraidMap() {
+  const map = await getAttendanceMap();
+  if (!map) return null;
+
+  const meKey = (CONFIG.ME_NAME || "").toLowerCase();
+  const me = meKey ? map.players[meKey] : null;
+
+  // myCodes = the reports to measure against. null = "all reports" (guild
+  // mode, when no ME_NAME is configured); a set otherwise.
+  let myCodes;
+  if (!meKey) myCodes = null;            // guild mode: count every report
+  else if (me) myCodes = new Set(me.raids.map((r) => r.code).filter(Boolean));
+  else myCodes = new Set();              // configured main not found -> nothing
+
+  const players = {};
+  for (const [k, p] of Object.entries(map.players)) {
+    if (meKey && k === meKey) continue; // don't list yourself
+    const shared = myCodes === null ? p.raids : p.raids.filter((r) => r.code && myCodes.has(r.code));
+    if (shared.length) {
+      players[k] = { name: p.name, withMe: shared.length, shared, lastTs: shared[0]?.ts ?? 0 };
+    }
+  }
+  return {
+    guildName: map.guildName,
+    meName: CONFIG.ME_NAME || map.guildName,
+    mePresent: !meKey || !!me,
+    meRaidCount: myCodes === null ? map.reportsScanned : myCodes.size,
+    reportsScanned: map.reportsScanned,
+    players,
+  };
+}

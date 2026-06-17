@@ -27,11 +27,15 @@ export const CONFIG = {
   // Aggregate / non-raid zones to skip when auto-detecting.
   EXCLUDE_ZONE_PATTERNS: ["Complete Raid", "Heroic Dungeon", "Challenge Mode"],
 
-  // Your guild, for the "raided with us before" check (uses WCL's guild
-  // attendance). Leave GUILD_NAME empty ("") to hide the feature entirely.
+  // Your guild — the source of raid logs for the "raided with me" check
+  // (uses WCL guild attendance). Leave GUILD_NAME empty ("") to hide it.
   GUILD_NAME: "Cant Park There Mate",
   GUILD_REALM: "Thunderstrike",
   GUILD_REGION: "EU",
+  // Your main character. "Raided with me" counts shared raids with THIS
+  // character (must appear in the guild's logs). Empty -> falls back to
+  // plain guild attendance.
+  ME_NAME: "Sahmeran",
   // How many attendance pages to scan (25 raids per page).
   ATTENDANCE_MAX_PAGES: 4,
   ATTENDANCE_TTL_SECONDS: 21600, // refresh guild history every 6h

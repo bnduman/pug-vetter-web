@@ -2,7 +2,7 @@
 // no CORS restrictions — CORS itself was verified separately against the API).
 // Usage: node test/smoke.mjs [name]
 import { CONFIG } from "../js/config.js";
-import { getAttendanceMap } from "../js/attendance.js";
+import { getAttendanceMap, getCoraidMap } from "../js/attendance.js";
 import { vet } from "../js/vet.js";
 
 const name = process.argv[2] ?? "sahmeran";
@@ -70,15 +70,23 @@ if (CONFIG.GUILD_NAME) {
   console.log(`\nattendance: ${map.reportsScanned} reports, ${players.length} distinct players`);
   console.log("top regulars: " + regulars.map((p) => `${p.name}(${p.count})`).join(", "));
   const me = map.players[name.toLowerCase()];
-  console.log(`${d.name} raided with ${map.guildName}: ${me ? me.count + "x" : "never"}`);
-  // Per-player raid log list (powers the clickable "22x" -> log list UI).
-  const top = regulars[0];
-  if (top) {
-    if (!Array.isArray(top.raids) || top.raids.length !== top.count) fail("raids list != count");
-    if (top.raids.some((r) => !r.ts)) fail("raid entry missing timestamp");
-    const linked = top.raids.filter((r) => r.code).length;
-    console.log(`${top.name}'s raids: ${top.raids.length} entries, ${linked} with report links; newest: `
-      + top.raids.slice(0, 3).map((r) => `${new Date(r.ts).toISOString().slice(0, 10)} ${r.zone} [${r.code}]`).join(", "));
+  console.log(`${d.name} appears in ${map.guildName} logs: ${me ? me.count + "x" : "never"}`);
+
+  // Co-raid map: shared raids with the configured ME_NAME.
+  const co = await getCoraidMap();
+  if (!co) fail("co-raid map null");
+  if (!co.mePresent) fail(`ME_NAME "${CONFIG.ME_NAME}" not found in guild logs`);
+  console.log(`\n${co.meName} has ${co.meRaidCount} logged raids; `
+    + `${Object.keys(co.players).length} players have raided with them`);
+  const regs = Object.values(co.players).filter((p) => p.withMe >= 2)
+    .sort((a, b) => b.withMe - a.withMe).slice(0, 5);
+  console.log("top co-raiders: " + regs.map((p) => `${p.name}(${p.withMe})`).join(", "));
+  // Invariants: shared count matches, never exceeds my raid count, codes present.
+  for (const p of Object.values(co.players)) {
+    if (p.shared.length !== p.withMe) fail(`${p.name}: shared != withMe`);
+    if (p.withMe > co.meRaidCount) fail(`${p.name}: withMe ${p.withMe} > my ${co.meRaidCount}`);
+    if (p.shared.some((r) => !r.code || !r.ts)) fail(`${p.name}: shared raid missing code/ts`);
   }
+  if (co.players[CONFIG.ME_NAME.toLowerCase()]) fail("ME should not list itself as a co-raider");
 }
 console.log("\nSMOKE OK");
