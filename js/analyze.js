@@ -4,6 +4,7 @@
 import { ENCHANT_NAMES } from "./enchant-names.js";
 import { ENCHANT_SLOTS, NON_ILVL_SLOTS } from "./enchant-rules.js";
 import { ITEM_SOCKETS } from "./item-sockets.js";
+import { SPEC_ROLE } from "./wcl-classes.js";
 
 export const SLOT_LABELS = [
   "Head", "Neck", "Shoulder", "Shirt", "Chest", "Belt", "Legs", "Feet",
@@ -51,9 +52,9 @@ export function summarizeZone(zoneName, zoneRankings) {
   return { ...base, cleared, total: encounters.length, best_parse: best, encounters };
 }
 
-// The spec a player actually plays: the most frequent spec across their boss
-// rankings (each ranking entry carries the spec it was earned with).
-export function primarySpec(zoneRankingsList) {
+// Spec tally across a character's boss rankings (each entry carries the spec it
+// was earned with). -> Map<spec, count>, most-played first when iterated by count.
+function specTally(zoneRankingsList) {
   const tally = new Map();
   for (const zr of zoneRankingsList) {
     if (!zr || typeof zr !== "object") continue;
@@ -62,14 +63,32 @@ export function primarySpec(zoneRankingsList) {
       if (spec) tally.set(spec, (tally.get(spec) ?? 0) + 1);
     }
   }
+  return tally;
+}
+
+// The spec a player plays most (or null).
+export function primarySpec(zoneRankingsList) {
   let best = null;
   let bestN = 0;
-  for (const [spec, n] of tally) if (n > bestN) { best = spec; bestN = n; }
+  for (const [spec, n] of specTally(zoneRankingsList)) if (n > bestN) { best = spec; bestN = n; }
   return best;
 }
 
-// Locate a character inside a playerDetails blob -> {gear, role} or null.
+// The distinct ROLES a character has ranked parses in (tank/healer/dps), mapped
+// from real spec names. Used (for free, from data we already fetch) to decide
+// whether to scan for a second-role gear set. Unknown/set-name specs ignored.
+export function distinctRoles(zoneRankingsList) {
+  const roles = new Set();
+  for (const spec of specTally(zoneRankingsList).keys()) {
+    const role = SPEC_ROLE[spec];
+    if (role) roles.add(role);
+  }
+  return roles;
+}
+
+// Locate a character inside a playerDetails blob -> {gear, role, spec} or null.
 // WCL wraps the payload as {"data": {"playerDetails": {tanks, healers, dps}}}.
+// `spec` is the spec they played most in this report.
 export function findPlayer(playerDetails, charName) {
   let pd = playerDetails;
   if (pd && typeof pd === "object" && pd.data && typeof pd.data === "object") {
@@ -81,7 +100,8 @@ export function findPlayer(playerDetails, charName) {
   for (const [bucket, role] of Object.entries(roles)) {
     for (const player of pd[bucket] ?? []) {
       if ((player.name ?? "").toLowerCase() === target) {
-        return { gear: player.combatantInfo?.gear ?? [], role };
+        const specs = [...(player.specs ?? [])].sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+        return { gear: player.combatantInfo?.gear ?? [], role, spec: specs[0]?.spec ?? null };
       }
     }
   }

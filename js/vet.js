@@ -1,13 +1,18 @@
-// The lookup orchestration: character rankings (+ latest report's boss fights
-// in the same query), then one gear query. Produces the full scorecard.
+// The lookup orchestration: character rankings (+ recent reports' boss fights
+// in the same query), then gear queries. Produces the full scorecard, with one
+// gear set per spec for dual-spec players.
 import { CONFIG } from "./config.js";
 import {
-  analyzeEnchants, buildGearList, findPlayer, parseColor, primarySpec, summarizeZone,
+  analyzeEnchants, buildGearList, distinctRoles, findPlayer, parseColor,
+  primarySpec, summarizeZone,
 } from "./analyze.js";
 import { computeGearScore } from "./gearscore.js";
 import { CLASS_COLORS, CLASS_NAMES } from "./wcl-classes.js";
 import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 import { getRaidZones } from "./zones.js";
+
+// How many recent reports to scan when hunting for a second spec's gear.
+const MULTISPEC_SCAN_REPORTS = 5;
 
 function slugifyRealm(realm) {
   return (realm ?? "").trim().toLowerCase().replace(/'/g, "")
@@ -23,7 +28,7 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!) {
       id
       name
       classID
-      recentReports(limit: 1) {
+      recentReports(limit: ${MULTISPEC_SCAN_REPORTS}) {
         data { code startTime fights(killType: Encounters) { id } }
       }
 ${aliases}
@@ -41,25 +46,59 @@ query($code: String!, $fightIDs: [Int]!) {
   }
 }`;
 
-// -> {enchants, gear, role} or null when the character isn't in the report.
-async function fetchGearInfo(reportCode, fightIds, charName) {
-  if (!fightIds.length) return null;
-  const data = await postGraphQL(REPORT_GEAR_QUERY, { code: reportCode, fightIDs: fightIds });
-  const details = data.reportData?.report?.playerDetails;
-  const player = findPlayer(details, charName);
-  if (!player) return null;
+// One report -> the character's gear set in it, or null if they're not in it.
+async function gearSetFromReport(rep, charName, className) {
+  const code = rep.code;
+  const fightIds = (rep.fights ?? []).map((f) => f.id).filter((id) => id != null);
+  if (!code || !fightIds.length) return null;
+  const data = await postGraphQL(REPORT_GEAR_QUERY, { code, fightIDs: fightIds });
+  const player = findPlayer(data.reportData?.report?.playerDetails, charName);
+  if (!player || !player.gear.length) return null;
+  const gear = buildGearList(player.gear);          // stamps per-item gs below
+  const enchants = analyzeEnchants(player.gear);
+  const gearscore = computeGearScore(gear, className);
   return {
-    enchants: analyzeEnchants(player.gear),
-    gear: buildGearList(player.gear),
+    spec: player.spec,
     role: player.role,
+    gear,
+    enchants,
+    gearscore,
+    ilvl: enchants.avg_item_level,
+    lastLog: rep.startTime ?? null,
+    reportCode: code,
   };
+}
+
+// Collect a gear set per distinct ROLE (tank/healer/dps). Single-role players
+// cost one query; only genuinely multi-role characters scan further. Grouping
+// by role (not spec) avoids splitting a player when WCL mislabels their spec
+// with a tier-set name across reports.
+async function buildGearSets(reports, charName, className, multi) {
+  const sets = [];
+  const seenRoles = new Set();
+  const limit = multi ? Math.min(reports.length, MULTISPEC_SCAN_REPORTS) : 1;
+  for (let i = 0; i < limit; i++) {
+    let set;
+    try {
+      set = await gearSetFromReport(reports[i], charName, className);
+    } catch {
+      continue; // gear is a bonus; skip a bad report
+    }
+    if (!set) continue;
+    const roleKey = set.role ?? `set${i}`;
+    if (seenRoles.has(roleKey)) continue; // keep the newest gear per role
+    seenRoles.add(roleKey);
+    sets.push(set);
+    if (sets.length >= 2) break; // tank + dps is plenty
+  }
+  return sets;
 }
 
 export async function vet(name) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  // "vet4" — cache key versioned; bump when the result shape/values change.
-  const key = `vet4/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet5" — cache key versioned; bump when the result shape/values change.
+  const key = `vet5/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 
@@ -83,27 +122,24 @@ export async function vet(name) {
     return { ...summary, tier, color };
   });
 
-  let gearInfo = null;
-  let lastLog = null;
+  const className = CLASS_NAMES[char.classID] ?? null;
   const recent = char.recentReports?.data ?? [];
+  const lastLog = recent[0]?.startTime ?? null;
+
+  let gearSets = [];
   if (recent.length) {
-    lastLog = recent[0].startTime ?? null;
-    const code = recent[0].code;
-    const fightIds = (recent[0].fights ?? []).map((f) => f.id).filter((id) => id != null);
-    if (code && fightIds.length) {
-      try {
-        gearInfo = await fetchGearInfo(code, fightIds, name);
-      } catch {
-        gearInfo = null; // gear is a bonus; never fail the whole lookup over it
-      }
+    const multi = distinctRoles(zrList).size >= 2;
+    try {
+      gearSets = await buildGearSets(recent, name, className, multi);
+    } catch {
+      gearSets = [];
     }
   }
 
-  const className = CLASS_NAMES[char.classID] ?? null;
-  // Also stamps a per-item `gs` onto each gear entry for the detail view.
-  const gearscore = gearInfo?.gear?.length
-    ? computeGearScore(gearInfo.gear, className)
-    : null;
+  const primary = gearSets[0] ?? null;
+  const specs = gearSets.map((s) => s.spec).filter(Boolean);
+  const maxGs = gearSets.reduce((m, s) => Math.max(m, s.gearscore ?? 0), 0) || null;
+
   const result = {
     found: true,
     name: char.name ?? name,
@@ -111,12 +147,14 @@ export async function vet(name) {
     region,
     class: className,
     classColor: CLASS_COLORS[className] ?? "#e8e9ee",
-    spec: primarySpec(zrList),
-    role: gearInfo?.role ?? null,
+    classID: char.classID ?? null,
+    spec: specs[0] ?? primarySpec(zrList),
+    specs,
+    role: primary?.role ?? null,
     raids,
-    enchants: gearInfo?.enchants ?? null,
-    gear: gearInfo?.gear ?? null,
-    gearscore,
+    gearSets,
+    enchants: primary?.enchants ?? null, // primary set, for the roster card
+    gearscore: maxGs,
     last_log: lastLog,
   };
   cacheSet(key, result);

@@ -103,6 +103,17 @@ form#vet-form button.secondary:hover { border-color: var(--accent); }
 }
 .gscore { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
 
+/* per-spec gear block header (dual-spec players) */
+.spec-gear-title {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .add-roster {
   margin-left: auto;
   background: var(--panel-2);

@@ -3,7 +3,7 @@ import { CONFIG } from "./config.js";
 import { QUALITY_COLORS } from "./analyze.js";
 import { getCoraidMap } from "./attendance.js";
 import { gearScoreColor } from "./gearscore.js";
-import { ROLE_ICONS } from "./wcl-classes.js";
+import { ROLE_ICONS, ROLE_LABEL, SPEC_ROLE } from "./wcl-classes.js";
 import { vet } from "./vet.js";
 import { WCLError } from "./wcl.js";
 
@@ -126,11 +126,17 @@ function renderNoData(data) {
 
 function renderResult(data) {
   const raids = data.raids || [];
+  const sets = data.gearSets || [];
+  const multi = sets.length > 1;
   const totalCleared = raids.reduce((n, r) => n + (r.cleared > 0 ? 1 : 0), 0);
   const lastLog = data.last_log ? new Date(data.last_log).toLocaleDateString() : "—";
 
-  const specTxt = [data.spec, data.class].filter(Boolean).join(" ") || "class unknown";
-  const roleIcon = data.role ? ROLE_ICONS[data.role] + " " : "";
+  // Spec badge lists every spec we found gear for (with its role icon). A spec
+  // WCL mislabeled with a tier-set name falls back to the plain role.
+  const specTxt = sets.length
+    ? sets.map((s) => (s.role ? ROLE_ICONS[s.role] + " " : "") + specName(s)).join(" · ")
+        + (data.class ? " " + data.class : "")
+    : ([data.spec, data.class].filter(Boolean).join(" ") || "class unknown");
 
   const raidRows = raids.map((r) => {
     const did = r.cleared > 0;
@@ -146,26 +152,52 @@ function renderResult(data) {
 
   const gsBadge = data.gearscore != null
     ? `<span class="gs-badge" style="color:${gearScoreColor(data.gearscore)}"
-         title="GearScore — same calculation as classic-armory.org (computed from their last logged gear)">GS ${data.gearscore}</span>`
+         title="GearScore — same calculation as classic-armory.org${multi ? " (best of " + sets.length + " specs)" : ""}">GS ${data.gearscore}</span>`
     : "";
+
+  const gearBlocks = sets.length
+    ? sets.map((s) => renderGearSet(s, multi)).join("")
+    : `<div class="section-title">Enchants &amp; gems</div>
+       <div class="meta">No gear data available from logs.</div>`;
 
   return `
     <div class="card-top">
       <h2 style="color:${data.classColor}">${esc(data.name)}</h2>
-      <span class="spec-badge">${roleIcon}${esc(specTxt)}</span>
+      <span class="spec-badge">${esc(specTxt)}</span>
       ${gsBadge}
       <button class="add-roster" type="button">＋ Add to roster</button>
     </div>
     <div class="meta">${esc(data.realm)} · ${esc(data.region)} &nbsp;·&nbsp; last logged raid: ${lastLog}
-      &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}</div>
+      &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}${multi ? " &nbsp;·&nbsp; dual-spec: showing both gear sets" : ""}</div>
     ${CONFIG.GUILD_NAME ? '<div class="meta guild-line">checking guild raid history…</div>' : ""}
 
     <div class="section-title">Raid clears &amp; best perf. average</div>
     ${raidRows || '<div class="meta">No raid ranking data.</div>'}
 
-    <div class="section-title">Enchants &amp; gems (from last logged gear)</div>
-    ${renderEnchantSummary(data.enchants)}
-    ${renderGear(data.gear)}`;
+    ${gearBlocks}`;
+}
+
+// A clean spec name: a real spec, else the role (WCL sometimes returns a
+// tier-set name like "Justicar" instead of a spec).
+function specName(set) {
+  if (set.spec && SPEC_ROLE[set.spec]) return set.spec;
+  return ROLE_LABEL[set.role] || set.spec || "Gear";
+}
+
+// One spec's gear block: a header (for multi-spec, naming the spec/GS/ilvl/date),
+// then its enchant summary and full gear list.
+function renderGearSet(set, multi) {
+  const roleIcon = set.role ? ROLE_ICONS[set.role] + " " : "";
+  const gs = set.gearscore != null
+    ? ` &mdash; <span style="color:${gearScoreColor(set.gearscore)};font-weight:700">GS ${set.gearscore}</span>` : "";
+  const ilvl = set.ilvl != null ? ` · ilvl ${set.ilvl}` : "";
+  const date = (multi && set.lastLog) ? ` · from ${new Date(set.lastLog).toLocaleDateString()}` : "";
+  const title = multi
+    ? `${roleIcon}${esc(specName(set))}${gs}${ilvl}${date}`
+    : `Enchants &amp; gems (from last logged gear)`;
+  return `<div class="section-title ${multi ? "spec-gear-title" : ""}">${title}</div>
+    ${renderEnchantSummary(set.enchants)}
+    ${renderGear(set.gear)}`;
 }
 
 function renderEnchantSummary(en) {

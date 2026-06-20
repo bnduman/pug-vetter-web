@@ -30,3 +30,23 @@ export const CLASS_COLORS = {
 };
 
 export const ROLE_ICONS = { tank: "🛡️", healer: "💚", dps: "⚔️" };
+export const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" };
+
+// Real TBC spec names -> role. Used to decide (from rankings, for free) whether
+// a character plays multiple ROLES and is worth scanning for a second gear set.
+// WCL occasionally mislabels a spec with a tier-set name (e.g. "Justicar");
+// those aren't in this map, so they're ignored rather than faked into a 2nd role.
+export const SPEC_ROLE = {
+  // tanks
+  Protection: "tank", Guardian: "tank",
+  // healers
+  Holy: "healer", Discipline: "healer", Restoration: "healer",
+  // dps
+  Arms: "dps", Fury: "dps", Retribution: "dps",
+  BeastMastery: "dps", Marksmanship: "dps", Survival: "dps",
+  Assassination: "dps", Combat: "dps", Subtlety: "dps",
+  Shadow: "dps", Elemental: "dps", Enhancement: "dps",
+  Arcane: "dps", Fire: "dps", Frost: "dps",
+  Affliction: "dps", Demonology: "dps", Destruction: "dps",
+  Balance: "dps", Feral: "dps",
+};

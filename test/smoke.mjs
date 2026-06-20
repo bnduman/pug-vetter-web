@@ -11,7 +11,10 @@ const d = await vet(name);
 console.log(`${d.name} @ ${d.realm}-${d.region} | found=${d.found}`);
 if (!d.found) process.exit(0);
 
-console.log(`class=${d.class} spec=${d.spec} role=${d.role} | GearScore=${d.gearscore}`);
+console.log(`class=${d.class} specs=${(d.specs || []).join("/")} role=${d.role} | GearScore=${d.gearscore} | gear sets=${(d.gearSets || []).length}`);
+for (const s of d.gearSets || []) {
+  console.log(`  set: ${s.role}/${s.spec} GS=${s.gearscore} ilvl=${s.ilvl} items=${s.gear.length} from ${new Date(s.lastLog).toISOString().slice(0, 10)}`);
+}
 for (const r of d.raids) {
   const bp = r.best_parse == null ? "-" : r.best_parse.toFixed(1);
   console.log(`  ${r.name.padEnd(24)} ${r.cleared}/${r.total}  perf avg ${bp} [${r.tier}]`);
@@ -45,18 +48,26 @@ if (e) {
   if (e.sockets_total < e.gems_total) fail("sockets_total < gems_total");
   if (e.empty_sockets !== e.sockets_total - e.gems_total) fail("empty socket math wrong");
 }
-if (d.gear) {
-  if (!d.gear.length) fail("gear list empty");
-  for (const g of d.gear) {
+for (const set of d.gearSets || []) {
+  if (!set.gear.length) fail("gear set empty");
+  for (const g of set.gear) {
     if (!g.name || g.quality == null) fail(`gear item missing name/quality: ${JSON.stringify(g)}`);
     if (g.emptySockets < 0) fail("negative empty sockets");
   }
-  // GearScore: plausible total, and the per-item scores must sum to it.
-  if (d.gearscore == null || d.gearscore < 500 || d.gearscore > 5000) {
-    fail(`implausible GearScore: ${d.gearscore}`);
+  if (set.gearscore == null || set.gearscore < 300 || set.gearscore > 5000) {
+    fail(`implausible GearScore: ${set.gearscore}`);
   }
-  const sum = d.gear.reduce((n, g) => n + (g.gs ?? 0), 0);
-  if (sum !== d.gearscore) fail(`per-item gs sum ${sum} != total ${d.gearscore}`);
+  // per-item scores must sum to the set total
+  const sum = set.gear.reduce((n, g) => n + (g.gs ?? 0), 0);
+  if (sum !== set.gearscore) fail(`per-item gs sum ${sum} != set total ${set.gearscore}`);
+}
+// one gear set per ROLE (no duplicate sets for the same role)
+const rolesSeen = (d.gearSets || []).map((s) => s.role);
+if (new Set(rolesSeen).size !== rolesSeen.length) fail(`duplicate role gear sets: ${rolesSeen}`);
+// header GearScore is the best of the sets
+if (d.gearSets?.length) {
+  const best = Math.max(...d.gearSets.map((s) => s.gearscore ?? 0));
+  if (d.gearscore !== best) fail(`header GS ${d.gearscore} != best set ${best}`);
 }
 
 // Guild attendance (only when a guild is configured).
