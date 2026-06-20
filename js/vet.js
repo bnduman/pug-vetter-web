@@ -11,8 +11,10 @@ import { CLASS_COLORS, CLASS_NAMES } from "./wcl-classes.js";
 import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 import { getRaidZones } from "./zones.js";
 
-// How many recent reports to scan when hunting for a second spec's gear.
-const MULTISPEC_SCAN_REPORTS = 5;
+// How many recent reports to scan when hunting for a second role's gear.
+// Only multi-role players scan past the first report, and they stop as soon as
+// the second role is found — so this is a worst-case bound, not a per-lookup cost.
+const MULTISPEC_SCAN_REPORTS = 15;
 
 function slugifyRealm(realm) {
   return (realm ?? "").trim().toLowerCase().replace(/'/g, "")
