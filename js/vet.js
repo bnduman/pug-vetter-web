@@ -8,7 +8,7 @@ import {
 } from "./analyze.js";
 import { computeGearScore } from "./gearscore.js";
 import { CLASS_COLORS, CLASS_NAMES } from "./wcl-classes.js";
-import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
+import { cacheGet, cacheSet, postGraphQL, WCLError } from "./wcl.js";
 import { getRaidZones } from "./zones.js";
 
 // How many recent reports to scan when hunting for a second role's gear.
@@ -83,8 +83,9 @@ async function buildGearSets(reports, charName, className, multi) {
     let set;
     try {
       set = await gearSetFromReport(reports[i], charName, className);
-    } catch {
-      continue; // gear is a bonus; skip a bad report
+    } catch (e) {
+      if (e instanceof WCLError) throw e; // surface rate-limit/auth/network failures
+      continue; // otherwise skip a single malformed report
     }
     if (!set) continue;
     const roleKey = set.role ?? `set${i}`;
@@ -129,12 +130,14 @@ export async function vet(name) {
   const lastLog = recent[0]?.startTime ?? null;
 
   let gearSets = [];
+  let gearError = null;
   if (recent.length) {
     const multi = distinctRoles(zrList).size >= 2;
     try {
       gearSets = await buildGearSets(recent, name, className, multi);
-    } catch {
-      gearSets = [];
+    } catch (e) {
+      // Don't disguise an auth/rate-limit/network failure as "no gear".
+      gearError = e instanceof WCLError ? e.message : "Gear data could not be loaded.";
     }
   }
 
@@ -155,6 +158,7 @@ export async function vet(name) {
     role: primary?.role ?? null,
     raids,
     gearSets,
+    gearError, // non-null when gear couldn't be fetched (vs genuinely absent)
     enchants: primary?.enchants ?? null, // primary set, for the roster card
     gearscore: maxGs,
     last_log: lastLog,

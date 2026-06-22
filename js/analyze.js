@@ -108,14 +108,32 @@ export function findPlayer(playerDetails, charName) {
   return null;
 }
 
-// Collapse the gear array to one item per slot (it can contain several fights'
-// worth of gear); keep the highest-item-level entry per slot.
+// Collapse the gear array to one item per slot. It can contain several fights'
+// worth of gear, so per slot we keep the item equipped in the MOST fights
+// (mode) rather than the highest item level: averaging best-ilvl-per-slot
+// across fights can fabricate a set the player never actually wore together,
+// inflating GearScore (e.g. a one-off weapon/trinket swap). Ties break toward
+// higher item level.
 function gearBySlot(gear) {
-  const best = new Map();
+  const perSlot = new Map(); // slot -> Map(itemId -> { item, count })
   for (const item of gear ?? []) {
     if (!item || typeof item !== "object" || item.slot == null) continue;
-    const cur = best.get(item.slot);
-    if (!cur || (item.itemLevel ?? 0) > (cur.itemLevel ?? 0)) best.set(item.slot, item);
+    const counts = perSlot.get(item.slot) ?? new Map();
+    const k = String(item.id ?? 0);
+    const entry = counts.get(k) ?? { item, count: 0 };
+    entry.count += 1;
+    counts.set(k, entry);
+    perSlot.set(item.slot, counts);
+  }
+  const best = new Map();
+  for (const [slot, counts] of perSlot) {
+    let pick = null;
+    for (const e of counts.values()) {
+      const better = !pick || e.count > pick.count ||
+        (e.count === pick.count && (e.item.itemLevel ?? 0) > (pick.item.itemLevel ?? 0));
+      if (better) pick = e;
+    }
+    if (pick) best.set(slot, pick.item);
   }
   return best;
 }

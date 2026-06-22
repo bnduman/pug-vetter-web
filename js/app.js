@@ -104,7 +104,7 @@ async function fillGuildLine(card, charName) {
     if (entry) {
       const last = entry.lastTs ? new Date(entry.lastTs).toLocaleDateString() : "?";
       line.innerHTML = `🤝 Raided with <b>${esc(co.meName)}</b> `
-        + `<span class="att-count" data-name="${esc(charName.toLowerCase())}" `
+        + `<span class="att-count" role="button" tabindex="0" data-name="${esc(charName.toLowerCase())}" `
         + `title="Show every shared raid log">${entry.withMe}×</span>`
         + ` of ${co.meRaidCount} · last ${last}`;
       line.classList.add("known");
@@ -158,7 +158,7 @@ function renderResult(data) {
   const gearBlocks = sets.length
     ? sets.map((s) => renderGearSet(s, multi)).join("")
     : `<div class="section-title">Enchants &amp; gems</div>
-       <div class="meta">No gear data available from logs.</div>`;
+       <div class="meta">${data.gearError ? `⚠ Gear couldn't be loaded: ${esc(data.gearError)}` : "No gear data available from logs."}</div>`;
 
   return `
     <div class="card-top">
@@ -445,8 +445,8 @@ regularsBtn.addEventListener("click", async () => {
     card.dataset.card = "__regulars";
     const rows = regulars.map((p) => `
       <div class="regular-row">
-        <span class="regular-link" data-name="${esc(p.name)}">${esc(p.name)}</span>
-        <span class="rcount att-count" data-name="${esc(p.name.toLowerCase())}"
+        <span class="regular-link" role="button" tabindex="0" data-name="${esc(p.name)}">${esc(p.name)}</span>
+        <span class="rcount att-count" role="button" tabindex="0" data-name="${esc(p.name.toLowerCase())}"
               title="Show every shared raid log">${p.withMe}×</span>
         <span class="rlast">last ${new Date(p.lastTs).toLocaleDateString()}</span>
       </div>`).join("");
@@ -469,6 +469,14 @@ feedEl.addEventListener("click", (e) => {
   if (!link) return;
   document.getElementById("name").value = link.dataset.name;
   lookup(link.dataset.name);
+});
+
+// Keyboard support: Enter/Space on a role="button" span fires its click.
+feedEl.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.('[role="button"]')) {
+    e.preventDefault();
+    e.target.click();
+  }
 });
 
 // Click a "22×" count (card guild-line or regulars row) -> toggle the list of

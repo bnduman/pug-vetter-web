@@ -13,6 +13,12 @@ export const ENCHANT_SLOTS = [
   { slot: 6, label: "Legs", required: true },
   { slot: 7, label: "Feet", required: true },
   { slot: 15, label: "Weapon", required: true },
+  // Off-hand (16) IS enchantable for shields and off-hand weapons, but a
+  // non-enchantable caster held-in-off-hand also sits here, and WCL gear data
+  // doesn't give us the item class to tell them apart. So we surface it (no
+  // longer silently treated as non-enchantable) but don't force-count it as a
+  // required miss, which would falsely penalize caster off-hands.
+  { slot: 16, label: "Off Hand", required: false },
 ];
 
 // Slots to ignore when averaging item level (cosmetic / no real ilvl).

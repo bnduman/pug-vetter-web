@@ -36,7 +36,7 @@ function home(error) {
       <p class="sub">Paste a Warcraft Logs report — CSI reconstructs each death, names the
         likely cause, and hands you a Discord-ready &ldquo;fix next pull&rdquo; checklist.</p>
       <div class="csi-row">
-        <input id="csi-url" placeholder="https://classic.warcraftlogs.com/reports/ABC123#fight=5" />
+        <input id="csi-url" aria-label="Warcraft Logs report URL" placeholder="https://classic.warcraftlogs.com/reports/ABC123#fight=5" />
         <button id="csi-analyze" type="button">Analyze</button>
       </div>
       <p class="csi-hint">Paste a whole report to see every pull, or add <code>#fight=5</code> to jump to one.</p>
@@ -46,7 +46,7 @@ function home(error) {
 }
 
 function loading(text) {
-  root.innerHTML = `<div class="csi-loading">🔍 ${esc(text)}</div>`;
+  root.innerHTML = `<div class="csi-loading" role="status" aria-live="polite">🔍 ${esc(text)}</div>`;
 }
 
 function overview(error) {
@@ -72,7 +72,7 @@ function overview(error) {
     : null;
 
   const tableRows = rows.map((r, i) => `
-    <tr class="csi-fight-row" data-fight="${esc(r.f.id)}">
+    <tr class="csi-fight-row" role="button" tabindex="0" data-fight="${esc(r.f.id)}" aria-label="Analyze ${esc(r.f.bossName)} ${r.f.kill ? "kill" : "wipe"}">
       <td class="dim mono">${i + 1}</td>
       <td>${esc(r.f.bossName)}</td>
       <td>${r.f.kill ? '<span class="ok">Kill</span>' : '<span class="bad">Wipe</span>'}</td>
@@ -307,6 +307,15 @@ root.addEventListener("keydown", (e) => {
   if (e.target.id === "csi-url" && e.key === "Enter") {
     e.preventDefault();
     analyze(e.target.value);
+    return;
+  }
+  // Enter/Space activates a keyboard-focused fight row.
+  if (e.key === "Enter" || e.key === " ") {
+    const row = e.target.closest?.(".csi-fight-row");
+    if (row) {
+      e.preventDefault();
+      navigateFight(row.dataset.fight);
+    }
   }
 });
 

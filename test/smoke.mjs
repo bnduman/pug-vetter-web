@@ -5,11 +5,18 @@ import { CONFIG } from "../js/config.js";
 import { getAttendanceMap, getCoraidMap } from "../js/attendance.js";
 import { vet } from "../js/vet.js";
 
-const name = process.argv[2] ?? "sahmeran";
+const explicitName = process.argv[2];
+const name = explicitName ?? "sahmeran";
 const d = await vet(name);
 
 console.log(`${d.name} @ ${d.realm}-${d.region} | found=${d.found}`);
-if (!d.found) process.exit(0);
+if (!d.found) {
+  // A missing default character means the lookup itself is broken -> fail.
+  // An explicitly-requested name that doesn't exist is a valid outcome.
+  if (!explicitName) { console.error("SMOKE FAIL: default character not found — lookup likely broken"); process.exit(1); }
+  console.log("(explicitly-requested character not found — ok)");
+  process.exit(0);
+}
 
 console.log(`class=${d.class} specs=${(d.specs || []).join("/")} role=${d.role} | GearScore=${d.gearscore} | gear sets=${(d.gearSets || []).length}`);
 for (const s of d.gearSets || []) {

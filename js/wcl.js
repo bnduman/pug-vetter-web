@@ -37,6 +37,24 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const RATE_LIMIT_RETRIES = 2;
 const BACKOFF_MS = [1000, 2000, 4000];
 const MAX_RETRY_WAIT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 20000;
+
+// fetch() with an abort-based timeout so a hung request can't stall the UI
+// forever. Timeouts surface as a friendly WCLError.
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new WCLError(`Warcraft Logs request timed out after ${REQUEST_TIMEOUT_MS / 1000}s — try again.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function jsonOf(resp) {
   try {
@@ -58,7 +76,7 @@ async function getToken(force = false) {
   }
   let resp;
   try {
-    resp = await fetch(CONFIG.TOKEN_URL, {
+    resp = await fetchWithTimeout(CONFIG.TOKEN_URL, {
       method: "POST",
       headers: {
         Authorization: "Basic " + btoa(`${CONFIG.WCL_CLIENT_ID}:${CONFIG.WCL_CLIENT_SECRET}`),
@@ -67,6 +85,7 @@ async function getToken(force = false) {
       body: "grant_type=client_credentials",
     });
   } catch (err) {
+    if (err instanceof WCLError) throw err;
     throw new WCLError(`Could not reach Warcraft Logs: ${err}`);
   }
   if (!resp.ok) {
@@ -98,12 +117,13 @@ export async function postGraphQL(query, variables = {}) {
     const token = await getToken();
     let resp;
     try {
-      resp = await fetch(CONFIG.API_URL, {
+      resp = await fetchWithTimeout(CONFIG.API_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ query, variables }),
       });
     } catch (err) {
+      if (err instanceof WCLError) throw err;
       throw new WCLError(`Could not reach Warcraft Logs: ${err}`);
     }
 
