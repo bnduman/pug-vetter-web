@@ -8,7 +8,13 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div class="layout">
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" type="button" data-tab="vetter">⚔️ PuG Vetter</button>
+  <button class="tab" type="button" data-tab="autopsy">🔬 Wipe Autopsy</button>
+</nav>
+
+<div class="layout" id="view-vetter">
 
   <section class="main">
     <header>
@@ -49,6 +55,13 @@
   </aside>
 
 </div>
+
+<section id="view-autopsy" hidden>
+  <div id="autopsy"></div>
+</section>
+
 <script type="module" src="js/app.js"></script>
+<script type="module" src="js/autopsy.js"></script>
+<script type="module" src="js/tabs.js"></script>
 </body>
 </html>
