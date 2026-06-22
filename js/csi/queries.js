@@ -44,6 +44,7 @@ query($code: String!, $fightID: Int!, $start: Float!, $end: Float!, $dataType: E
         endTime: $end
         dataType: $dataType
         hostilityType: Friendlies
+        includeResources: true
         limit: 10000
       ) {
         data

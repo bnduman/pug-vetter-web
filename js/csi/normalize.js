@@ -81,6 +81,12 @@ export function normalizeEvent(ev, fightStart, abilities) {
   }
   if (ev.amount != null) out.amount = ev.amount;
   if (ev.absorbed) out.absorbed = ev.absorbed;
+  // Target HP at the event, from includeResources. WCL normalizes to a percent
+  // (hitPoints out of maxHitPoints=100), but compute defensively.
+  if (ev.hitPoints != null) {
+    const max = ev.maxHitPoints || 100;
+    out.hpPct = Math.round((ev.hitPoints / max) * 100);
+  }
   // damage "overkill" and heal "overheal" both map to CSI's overkill field.
   const over = ev.overkill ?? ev.overheal;
   if (over) out.overkill = over;

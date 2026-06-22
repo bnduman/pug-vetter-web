@@ -179,7 +179,7 @@ function deathCard(d) {
          <summary>Last ${d.windowMs / 1000}s timeline (${timeline.length} events)</summary>
          <ul class="csi-tl">
            ${timelineRows}
-           <li><span class="mono dim">0.0s</span><span class="bad">☠ Died</span><span></span></li>
+           <li><span class="mono dim">0.0s</span><span class="bad">☠ Died</span><span></span><span class="mono bad">0%</span></li>
          </ul>
        </details>`
     : "";
@@ -209,15 +209,17 @@ function deathCard(d) {
 
 function timelineRow(ev) {
   const t = `-${(ev.ms / 1000).toFixed(1)}s`;
+  const from = ev.source ? ` <span class="dim">from ${esc(ev.source)}</span>` : "";
+  const hp = ev.hpPct != null ? `<span class="mono dim" title="HP after">${ev.hpPct}%</span>` : `<span></span>`;
   if (ev.kind === "heal") {
-    return `<li><span class="mono dim">${t}</span><span class="ok">＋ ${esc(ev.ability)}</span><span class="mono ok">+${num(ev.amount)}</span></li>`;
+    return `<li><span class="mono dim">${t}</span><span class="ok">＋ ${esc(ev.ability)}${from}</span><span class="mono ok">+${num(ev.amount)}</span>${hp}</li>`;
   }
   if (ev.kind === "cooldown") {
-    return `<li><span class="mono dim">${t}</span><span class="link">🛡 ${esc(ev.ability)}</span><span class="dim mono">used</span></li>`;
+    return `<li><span class="mono dim">${t}</span><span class="link">🛡 ${esc(ev.ability)} used</span><span class="dim mono">—</span><span></span></li>`;
   }
   const mark = ev.avoidable ? "⚠" : "✶";
   const cls = ev.avoidable ? "warn" : "";
-  return `<li><span class="mono dim">${t}</span><span class="${cls}">${mark} ${esc(ev.ability)}</span><span class="mono bad">−${num(ev.amount)}</span></li>`;
+  return `<li><span class="mono dim">${t}</span><span class="${cls}">${mark} ${esc(ev.ability)}${from}</span><span class="mono bad">−${num(ev.amount)}</span>${hp}</li>`;
 }
 
 function sevBadge(sev) {

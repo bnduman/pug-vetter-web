@@ -82,13 +82,19 @@ function analyzeDeath(death, fight, idx) {
       entry.avoidable = entry.avoidable || !!e.avoidable;
       damageByAbility.set(name, entry);
       lastDamage = { abilityName: name, amount: amt };
-      timeline.push({ ms, kind: "damage", ability: name, amount: amt, avoidable: !!e.avoidable });
+      timeline.push({
+        ms, kind: "damage", ability: name, amount: amt, avoidable: !!e.avoidable,
+        source: idx.get(e.sourceId)?.name, hpPct: e.hpPct,
+      });
     } else if (e.type === "heal") {
       const amt = e.amount ?? 0;
       healsReceived += amt;
       healCount += 1;
       lastHealAt = e.timestamp;
-      timeline.push({ ms, kind: "heal", ability: name, amount: amt });
+      timeline.push({
+        ms, kind: "heal", ability: name, amount: amt,
+        source: idx.get(e.sourceId)?.name, hpPct: e.hpPct,
+      });
     }
   }
 

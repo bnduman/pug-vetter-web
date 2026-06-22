@@ -16,10 +16,11 @@ const actors = [
 ];
 
 const dmg = (timestamp, targetId, abilityName, amount, opts = {}) => ({
-  timestamp, type: "damage", sourceId: opts.sourceId ?? "gruul", targetId, abilityName, amount, avoidable: opts.avoidable,
+  timestamp, type: "damage", sourceId: opts.sourceId ?? "gruul", targetId, abilityName, amount,
+  avoidable: opts.avoidable, hpPct: opts.hp,
 });
-const heal = (timestamp, sourceId, targetId, abilityName, amount) => ({
-  timestamp, type: "heal", sourceId, targetId, abilityName, amount,
+const heal = (timestamp, sourceId, targetId, abilityName, amount, hp) => ({
+  timestamp, type: "heal", sourceId, targetId, abilityName, amount, hpPct: hp,
 });
 const death = (timestamp, targetId, sourceId = "gruul") => ({ timestamp, type: "death", sourceId, targetId });
 
@@ -50,14 +51,14 @@ const fight1 = {
     dmg(277_000, "shock", "Ground Slam", 2200, { avoidable: true }),
     dmg(284_500, "shock", "Shatter", 9000, { avoidable: true }),
     death(284_500, "shock"),
-    heal(278_500, "natu", "sahm", "Healing Touch", 3500),
-    dmg(279_000, "sahm", "Melee", 4200),
-    dmg(281_000, "sahm", "Melee", 3900),
-    heal(282_000, "light", "sahm", "Holy Light", 4200),
-    dmg(282_500, "sahm", "Melee", 4500),
-    dmg(284_000, "sahm", "Crushing Blow", 5100),
-    dmg(285_500, "sahm", "Melee", 4800),
-    dmg(286_800, "sahm", "Crushing Blow", 7840),
+    heal(278_500, "natu", "sahm", "Healing Touch", 3500, 82),
+    dmg(279_000, "sahm", "Melee", 4200, { hp: 70 }),
+    dmg(281_000, "sahm", "Melee", 3900, { hp: 62 }),
+    heal(282_000, "light", "sahm", "Holy Light", 4200, 88),
+    dmg(282_500, "sahm", "Melee", 4500, { hp: 74 }),
+    dmg(284_000, "sahm", "Crushing Blow", 5100, { hp: 52 }),
+    dmg(285_500, "sahm", "Melee", 4800, { hp: 33 }),
+    dmg(286_800, "sahm", "Crushing Blow", 7840, { hp: 0 }),
     death(287_000, "sahm"),
   ],
 };
