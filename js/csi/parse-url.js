@@ -21,7 +21,9 @@ export function parseReportUrl(input) {
   } catch {
     return null;
   }
-  if (!/warcraftlogs\.com$/i.test(url.hostname)) return null;
+  // Anchor on a subdomain boundary so lookalikes like "evilwarcraftlogs.com"
+  // are rejected (only warcraftlogs.com and its subdomains pass).
+  if (!/(^|\.)warcraftlogs\.com$/i.test(url.hostname)) return null;
 
   const pathMatch = url.pathname.match(REPORT_PATH);
   if (!pathMatch) return null;

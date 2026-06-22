@@ -48,21 +48,40 @@ export function summarizeFight(fight, idx) {
   const checklist = [];
 
   // A tank death is the ROOT cause only if it set off the collapse (tank died
-  // first) or it's a late spike death with nothing else to blame. A tank dying
-  // last, after others fell, is a symptom — not the cause.
+  // first) or it's a late death with nothing else to blame. A tank dying last,
+  // after others fell, is a symptom — not the cause.
   const firstDeath = deaths[0];
   const tankDiedFirst = !!firstDeath && firstDeath.victim.role === "tank";
-  const lateTankDeath = tankDeaths.find((d) => d.timestamp >= lateThreshold && !d.defensiveUsed);
+  const lateTankDeath = tankDeaths.find((d) => d.timestamp >= lateThreshold);
+  // Healer deaths only explain a wipe if they happened BEFORE the collapse.
+  const earlyHealerDeaths = healerDeaths.filter((d) => d.timestamp < lateThreshold);
 
-  const tankSpikeFinding = (evidence) => {
-    checklist.push("Tank pre-casts a defensive cooldown before the known spike.");
-    checklist.push("Healers assign one person to hard-focus the tank in the danger window.");
-    return { text: "Tank died during an unmitigated damage spike.", severity: "critical", evidence };
+  // Describe a tank death from the evidence instead of assuming "unmitigated":
+  // a defensive may have been up, or it may have been an avoidable mechanic.
+  const tankDeathFinding = (d) => {
+    const mostlyAvoidable =
+      d.totalDamageTaken > 0 && d.avoidableDamageTaken / d.totalDamageTaken >= 0.5;
+    if (mostlyAvoidable) {
+      const ab = d.damageTaken.filter((s) => s.avoidable).map((s) => s.abilityName).join(", ") || "avoidable damage";
+      checklist.push("Tank repositions/avoids the mechanic before it lands.");
+      return { text: `Tank ${d.victim.name} died to avoidable damage (${ab}).`, severity: "critical", evidence: d.notes };
+    }
+    if (!d.defensiveUsed) {
+      checklist.push("Tank pre-casts a defensive cooldown before the known spike.");
+      checklist.push("Healers assign one person to hard-focus the tank in the danger window.");
+      return { text: "Tank died during an unmitigated damage spike.", severity: "critical", evidence: d.notes };
+    }
+    checklist.push("Review tank healing coverage — a defensive was already used, so this is a healing gap or raw burst, not a missed cooldown.");
+    return {
+      text: `Tank ${d.victim.name} died${d.killingBlow ? ` to ${d.killingBlow.abilityName}` : ""} despite using a defensive.`,
+      severity: "critical",
+      evidence: d.notes,
+    };
   };
 
   let primaryCause;
   if (tankDiedFirst) {
-    primaryCause = tankSpikeFinding(firstDeath.notes);
+    primaryCause = tankDeathFinding(firstDeath);
   } else if (avoidableDeaths.length >= 3) {
     primaryCause = {
       text: `Multiple players (${avoidableDeaths.length}) died to avoidable mechanics.`,
@@ -72,15 +91,15 @@ export function summarizeFight(fight, idx) {
       ),
     };
     checklist.push("Raid reacts faster to the avoidable mechanic — move on the cast, not the hit.");
-  } else if (healerDeaths.length >= 2) {
+  } else if (earlyHealerDeaths.length >= 2) {
     primaryCause = {
       text: "Healer deaths left the raid without enough healing.",
       severity: "high",
-      evidence: healerDeaths.map((d) => `${d.victim.name} died at ${formatRel(d.timestamp)}`),
+      evidence: earlyHealerDeaths.map((d) => `${d.victim.name} died at ${formatRel(d.timestamp)}`),
     };
     checklist.push("Protect healers — assign cooldowns/positioning so they survive the danger window.");
   } else if (lateTankDeath) {
-    primaryCause = tankSpikeFinding(lateTankDeath.notes);
+    primaryCause = tankDeathFinding(lateTankDeath);
   } else if (fight.bossPercentRemaining !== undefined && fight.bossPercentRemaining < 5) {
     primaryCause = {
       text: `Near-kill (${fight.bossPercentRemaining}% left) — likely an execution/cleanup issue.`,

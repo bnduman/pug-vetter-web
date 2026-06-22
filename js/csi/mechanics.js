@@ -17,6 +17,19 @@ function bump(s) {
   return ORDER[Math.min(i + 1, ORDER.length - 1)];
 }
 
+// A mechanic appears in the breakdown if it's avoidable for the victim, OR it's
+// a serious raid-wide coordination check (Blast Nova, Flame Wreath, ...). The
+// latter are surfaced as raid-level context — never per-player blame.
+function includeForFindings(rule, role) {
+  if (!rule) return false;
+  if (isAvoidableHit(rule, role)) return true;
+  if (rule.category === "raidwide") {
+    const s = normSeverity(rule.severity);
+    return s === "high" || s === "critical";
+  }
+  return false;
+}
+
 /**
  * Set event.avoidable = true on damage events that match an avoidable/chain
  * mechanic (or a frontal hit on a non-tank). Idempotent; never clears a flag,
@@ -45,7 +58,7 @@ export function mechanicFindings(fight, idx) {
     const rule = lookupRule(e.abilityName);
     if (!rule) continue;
     const role = e.targetId ? idx.get(e.targetId)?.role : undefined;
-    if (!isAvoidableHit(rule, role)) continue;
+    if (!includeForFindings(rule, role)) continue;
 
     let m = byAbility.get(e.abilityName);
     if (!m) {
@@ -53,6 +66,7 @@ export function mechanicFindings(fight, idx) {
         ability: e.abilityName,
         encounter: rule.encounter,
         category: rule.category,
+        raidLevel: rule.category === "raidwide",
         advice: rule.advice,
         base: normSeverity(rule.severity),
         total: 0,
@@ -77,7 +91,7 @@ export function mechanicFindings(fight, idx) {
       if (e.type !== "damage" || e.targetId !== d.targetId) continue;
       if (e.timestamp < windowStart || e.timestamp > d.timestamp) continue;
       const rule = lookupRule(e.abilityName);
-      if (!isAvoidableHit(rule, role)) continue;
+      if (!includeForFindings(rule, role)) continue;
       byAbility.get(e.abilityName)?.deaths.add(d.targetId);
     }
   }
@@ -95,12 +109,15 @@ export function mechanicFindings(fight, idx) {
       // Label with the actual fight's boss (the catalogue's encounter is just a
       // hint and can be wrong for names shared across bosses, e.g. Whirlwind).
       const encounter = fight.bossName;
-      const text = `${m.ability} (${encounter}) — ${playersHit} player${playersHit > 1 ? "s" : ""} hit, ${num(m.total)} dmg over ${m.ticks} tick${m.ticks > 1 ? "s" : ""}${deathTxt}. ${m.advice}`;
+      const text = m.raidLevel
+        ? `${m.ability} (${encounter}) — raid-wide coordination check, ${playersHit} hit, ${num(m.total)} dmg${deathTxt}. ${m.advice}`
+        : `${m.ability} (${encounter}) — ${playersHit} player${playersHit > 1 ? "s" : ""} hit, ${num(m.total)} dmg over ${m.ticks} tick${m.ticks > 1 ? "s" : ""}${deathTxt}. ${m.advice}`;
 
       return {
         ability: m.ability,
         encounter,
         category: m.category,
+        raidLevel: m.raidLevel,
         advice: m.advice,
         playersHit,
         totalDamage: m.total,

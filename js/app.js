@@ -270,8 +270,15 @@ const STORE_KEY = "pvw_roster_v1";
 let roster = loadRoster(); // [{id,name,color,spec,role,ilvl,missEnch,emptySock,zone}]
 
 function loadRoster() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)) ?? []; }
-  catch { return []; }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORE_KEY));
+    // Stored value must be an array of entry objects; anything else (a stray
+    // object/string from corruption) would crash rendering, so reset it.
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((e) => e && typeof e === "object" && typeof e.id === "string");
+  } catch {
+    return [];
+  }
 }
 function saveRoster() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(roster)); } catch { /* ignore */ }

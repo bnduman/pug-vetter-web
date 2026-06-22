@@ -36,6 +36,18 @@ function analyzeDeath(death, fight, idx) {
   const windowStart = t - RECAP_WINDOW_MS;
   const inWindow = (e) => e.timestamp >= windowStart && e.timestamp <= t;
 
+  // Consumables are tracked across the WHOLE fight: a Healthstone used early
+  // still counts, so we never falsely report it as unused.
+  let usedHealthstone = false;
+  let usedHealingPotion = false;
+  for (const e of fight.events) {
+    if (e.sourceId !== victimId && e.targetId !== victimId) continue;
+    const n = e.abilityName ?? "";
+    if (HEALTHSTONE.test(n)) usedHealthstone = true;
+    if (HEALING_POTION.test(n)) usedHealingPotion = true;
+    if (usedHealthstone && usedHealingPotion) break;
+  }
+
   const damageByAbility = new Map();
   const timeline = []; // chronological events involving the victim in the window
   let totalDamageTaken = 0;
@@ -44,22 +56,19 @@ function analyzeDeath(death, fight, idx) {
   let healCount = 0;
   let lastHealAt;
   let lastDamage;
-  let usedHealthstone = false;
-  let usedHealingPotion = false;
-  let defensiveUsed = false;
+  let defensiveUsed = false; // a tracked defensive cooldown used within the window
 
   for (const e of fight.events) {
     if (!inWindow(e)) continue;
     const name = e.abilityName ?? "Unknown";
     const ms = t - e.timestamp; // ms before death
 
-    if (e.sourceId === victimId || e.targetId === victimId) {
-      if (HEALTHSTONE.test(name)) usedHealthstone = true;
-      if (HEALING_POTION.test(name)) usedHealingPotion = true;
-      if (DEFENSIVE_ABILITIES.includes(name)) {
-        defensiveUsed = true;
-        timeline.push({ ms, kind: "cooldown", ability: name });
-      }
+    if (
+      (e.sourceId === victimId || e.targetId === victimId) &&
+      DEFENSIVE_ABILITIES.includes(name)
+    ) {
+      defensiveUsed = true;
+      timeline.push({ ms, kind: "cooldown", ability: name });
     }
 
     if (e.targetId !== victimId) continue;
@@ -100,9 +109,9 @@ function analyzeDeath(death, fight, idx) {
   if (avoidable.length > 0) {
     notes.push(`Took avoidable damage (${avoidable.map((d) => d.abilityName).join(", ")}) before dying.`);
   }
-  if (!usedHealthstone) notes.push("No Healthstone used.");
+  if (!usedHealthstone) notes.push("No Healthstone used all fight.");
   if (victim.role === "tank" && !defensiveUsed) {
-    notes.push("No major defensive cooldown active during the spike.");
+    notes.push(`No major defensive cooldown used in the final ${RECAP_WINDOW_MS / 1000}s.`);
   }
 
   return {

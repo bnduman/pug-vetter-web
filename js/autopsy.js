@@ -59,12 +59,17 @@ function overview(error) {
   const kills = rows.filter((r) => r.f.kill);
   const avg = wipes.length ? wipes.reduce((n, r) => n + r.f.durationMs, 0) / wipes.length : 0;
 
+  const analyzedWipes = rows.filter((r) => !r.f.kill && r.s);
   const counts = new Map();
-  for (const r of rows.filter((r) => !r.f.kill && r.s)) {
+  for (const r of analyzedWipes) {
     const t = r.s.primaryCause.text;
     counts.set(t, (counts.get(t) ?? 0) + 1);
   }
-  const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  // Only meaningful once 2+ wipes have been analyzed; a single opened fight is
+  // not "most common".
+  const common = analyzedWipes.length >= 2
+    ? [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+    : null;
 
   const tableRows = rows.map((r, i) => `
     <tr class="csi-fight-row" data-fight="${esc(r.f.id)}">

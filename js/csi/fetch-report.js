@@ -13,6 +13,11 @@ const EVENT_DATA_TYPES = ["Deaths", "DamageTaken", "Healing", "Casts"];
 const MAX_EVENT_PAGES = 50;
 const TTL = CONFIG.LOOKUP_TTL_SECONDS;
 
+// Raw event streams are large (~1 MB/fight) and would blow the ~5 MB
+// localStorage quota after a few fights. Cache them in memory for the session
+// instead; only the small meta/playerDetails blobs go to localStorage.
+const eventCache = new Map();
+
 async function fetchMeta(code) {
   const key = `csi_meta_${code}`;
   const cached = cacheGet(key, TTL);
@@ -66,10 +71,10 @@ export async function fetchReport(code, fightId = null) {
     if (!fight) throw new WCLError(`Fight ${fightId} not found in report ${code}.`);
 
     const evKey = `csi_events_${code}_${fightId}`;
-    let events = cacheGet(evKey, TTL);
+    let events = eventCache.get(evKey);
     if (!events) {
       events = await fetchFightEvents(code, fightId, fight.startTime ?? 0, fight.endTime ?? 0);
-      cacheSet(evKey, events);
+      eventCache.set(evKey, events);
     }
     eventsByFight[fightId] = events;
 
