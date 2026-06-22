@@ -115,6 +115,18 @@ function fightView(fightId) {
     ? `<h3>Fix next pull</h3><ol>${summary.nextPullChecklist.map((c) => `<li>${esc(c)}</li>`).join("")}</ol>`
     : "";
 
+  const mechanics = (summary.mechanics ?? []).slice(0, 8);
+  const mechanicsBlock = mechanics.length
+    ? `<div class="csi-card">
+         <div class="csi-card-head"><h3>Avoidable mechanics</h3><span class="dim">${mechanics.length} detected</span></div>
+         <ul class="csi-kv">${mechanics.map((m) => `
+           <li>
+             <span>${sevBadge(m.severity)} ${esc(m.ability)} <span class="dim">(${esc(m.encounter)})</span>${m.deaths > 0 ? ` <span class="bad">${m.deaths} death${m.deaths > 1 ? "s" : ""}</span>` : ""}</span>
+             <span class="dim mono">${m.playersHit} hit · ${num(m.totalDamage)}</span>
+           </li>`).join("")}</ul>
+       </div>`
+    : "";
+
   const deaths = summary.deaths.length
     ? summary.deaths.map(deathCard).join("")
     : `<p class="dim">No deaths recorded in this fight.</p>`;
@@ -136,6 +148,8 @@ function fightView(fightId) {
         ${contrib}
         ${checklist}
       </div>
+
+      ${mechanicsBlock}
 
       <h3>Deaths <span class="dim">(${summary.deaths.length})</span></h3>
       ${deaths}

@@ -2,6 +2,7 @@
 // Turn a fight's deaths into a wipe diagnosis: primary cause, contributing
 // factors, a next-pull checklist, and a confidence rating.
 import { analyzeDeaths } from "./deaths.js";
+import { applyMechanicRules, mechanicFindings } from "./mechanics.js";
 
 const LATE_DEATH_MS = 20_000;
 
@@ -17,6 +18,10 @@ function formatRel(ms) {
 }
 
 export function summarizeFight(fight, idx) {
+  // Tag avoidable mechanic damage before analyzing deaths, so death recaps and
+  // the avoidable-death logic reflect real boss mechanics on live reports.
+  applyMechanicRules(fight, idx);
+  const mechanics = mechanicFindings(fight, idx);
   const deaths = analyzeDeaths(fight, idx);
 
   if (fight.kill) {
@@ -25,6 +30,7 @@ export function summarizeFight(fight, idx) {
       primaryCause: { text: "Boss killed — clean pull.", severity: "low" },
       contributingFactors: [],
       nextPullChecklist: [],
+      mechanics,
       confidence: confidenceFor(fight, deaths),
       deaths,
     };
@@ -112,12 +118,18 @@ export function summarizeFight(fight, idx) {
       severity: "high",
     });
   }
+  // Turn the deadliest identified mechanic into concrete next-pull advice.
+  const fatalMechanic = mechanics.find((m) => m.deaths > 0);
+  if (fatalMechanic) {
+    checklist.push(`${fatalMechanic.ability}: ${fatalMechanic.advice}`);
+  }
 
   return {
     kill: false,
     primaryCause,
     contributingFactors,
     nextPullChecklist: [...new Set(checklist)],
+    mechanics,
     confidence: confidenceFor(fight, deaths),
     deaths,
   };

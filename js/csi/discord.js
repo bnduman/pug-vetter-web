@@ -37,6 +37,16 @@ export function toDiscordMarkdown(fight, summary) {
     for (const f of summary.contributingFactors) lines.push(`- ${f.text}`);
   }
 
+  const mechanics = (summary.mechanics ?? []).slice(0, 5);
+  if (mechanics.length) {
+    lines.push("");
+    lines.push("**Avoidable mechanics:**");
+    for (const m of mechanics) {
+      const deathTxt = m.deaths > 0 ? ` — **${m.deaths} death${m.deaths > 1 ? "s" : ""}**` : "";
+      lines.push(`- ${m.ability}: ${m.playersHit} hit, ${num(m.totalDamage)} dmg${deathTxt}`);
+    }
+  }
+
   if (summary.nextPullChecklist.length) {
     lines.push("");
     lines.push("**Fix next pull:**");
