@@ -2,9 +2,9 @@
 // Apply the mechanic catalogue to a fight: tag avoidable damage events and
 // build a per-mechanic breakdown (the spec's "ground effect" primitive).
 import { isAvoidableHit, lookupRule } from "./rules.js";
+import { RECAP_WINDOW_MS } from "./deaths.js";
 import { num } from "./format.js";
 
-const RECAP_WINDOW_MS = 10_000;
 const ORDER = ["low", "medium", "high", "critical"];
 
 function normSeverity(s) {

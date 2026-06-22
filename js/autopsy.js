@@ -166,6 +166,19 @@ function deathCard(d) {
   const blow = d.killingBlow
     ? `<span class="dim">killed by <b>${esc(d.killingBlow.abilityName)}</b> (${num(d.killingBlow.amount)})</span>`
     : "";
+
+  const timeline = d.timeline ?? [];
+  const timelineRows = timeline.map(timelineRow).join("");
+  const timelineBlock = timeline.length
+    ? `<details class="csi-timeline">
+         <summary>Last ${d.windowMs / 1000}s timeline (${timeline.length} events)</summary>
+         <ul class="csi-tl">
+           ${timelineRows}
+           <li><span class="mono dim">0.0s</span><span class="bad">☠ Died</span><span></span></li>
+         </ul>
+       </details>`
+    : "";
+
   return `
     <div class="csi-card">
       <div class="csi-death-head">
@@ -185,7 +198,21 @@ function deathCard(d) {
           <ul>${notes}</ul>
         </div>
       </div>
+      ${timelineBlock}
     </div>`;
+}
+
+function timelineRow(ev) {
+  const t = `-${(ev.ms / 1000).toFixed(1)}s`;
+  if (ev.kind === "heal") {
+    return `<li><span class="mono dim">${t}</span><span class="ok">＋ ${esc(ev.ability)}</span><span class="mono ok">+${num(ev.amount)}</span></li>`;
+  }
+  if (ev.kind === "cooldown") {
+    return `<li><span class="mono dim">${t}</span><span class="link">🛡 ${esc(ev.ability)}</span><span class="dim mono">used</span></li>`;
+  }
+  const mark = ev.avoidable ? "⚠" : "✶";
+  const cls = ev.avoidable ? "warn" : "";
+  return `<li><span class="mono dim">${t}</span><span class="${cls}">${mark} ${esc(ev.ability)}</span><span class="mono bad">−${num(ev.amount)}</span></li>`;
 }
 
 function sevBadge(sev) {

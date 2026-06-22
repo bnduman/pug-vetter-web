@@ -1,7 +1,8 @@
 "use strict";
-// Per-death recap: reconstruct what happened in the 10s before each death.
+// Per-death recap: reconstruct what happened in the 20s before each death,
+// including a chronological play-by-play timeline.
 
-export const RECAP_WINDOW_MS = 10_000;
+export const RECAP_WINDOW_MS = 20_000;
 
 // Self-cast survival cooldowns we expect a player (esp. a tank) to use.
 const DEFENSIVE_ABILITIES = [
@@ -36,6 +37,7 @@ function analyzeDeath(death, fight, idx) {
   const inWindow = (e) => e.timestamp >= windowStart && e.timestamp <= t;
 
   const damageByAbility = new Map();
+  const timeline = []; // chronological events involving the victim in the window
   let totalDamageTaken = 0;
   let avoidableDamageTaken = 0;
   let healsReceived = 0;
@@ -49,11 +51,15 @@ function analyzeDeath(death, fight, idx) {
   for (const e of fight.events) {
     if (!inWindow(e)) continue;
     const name = e.abilityName ?? "Unknown";
+    const ms = t - e.timestamp; // ms before death
 
     if (e.sourceId === victimId || e.targetId === victimId) {
       if (HEALTHSTONE.test(name)) usedHealthstone = true;
       if (HEALING_POTION.test(name)) usedHealingPotion = true;
-      if (DEFENSIVE_ABILITIES.includes(name)) defensiveUsed = true;
+      if (DEFENSIVE_ABILITIES.includes(name)) {
+        defensiveUsed = true;
+        timeline.push({ ms, kind: "cooldown", ability: name });
+      }
     }
 
     if (e.targetId !== victimId) continue;
@@ -67,12 +73,18 @@ function analyzeDeath(death, fight, idx) {
       entry.avoidable = entry.avoidable || !!e.avoidable;
       damageByAbility.set(name, entry);
       lastDamage = { abilityName: name, amount: amt };
+      timeline.push({ ms, kind: "damage", ability: name, amount: amt, avoidable: !!e.avoidable });
     } else if (e.type === "heal") {
-      healsReceived += e.amount ?? 0;
+      const amt = e.amount ?? 0;
+      healsReceived += amt;
       healCount += 1;
       lastHealAt = e.timestamp;
+      timeline.push({ ms, kind: "heal", ability: name, amount: amt });
     }
   }
+
+  // earliest first; the death itself is the anchor at ms 0 (rendered separately)
+  timeline.sort((a, b) => b.ms - a.ms);
 
   const damageTaken = [...damageByAbility.values()].sort((a, b) => b.total - a.total);
   const lastHealMsBeforeDeath = lastHealAt !== undefined ? t - lastHealAt : undefined;
@@ -99,6 +111,7 @@ function analyzeDeath(death, fight, idx) {
     severity: classifySeverity(victim, avoidableDamageTaken, totalDamageTaken),
     killingBlow: lastDamage,
     windowMs: RECAP_WINDOW_MS,
+    timeline,
     damageTaken,
     totalDamageTaken,
     avoidableDamageTaken,

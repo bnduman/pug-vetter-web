@@ -448,3 +448,17 @@ footer a { color: var(--accent); }
 .csi-sev-high { color: #ff9f43; border-color: #ff9f4366; background: #ff9f431a; }
 .csi-sev-medium { color: #f8b700; border-color: #f8b70066; background: #f8b7001a; }
 .csi-sev-low { color: #9aa0ad; border-color: #9aa0ad66; background: #9aa0ad1a; }
+
+/* death timeline (last-20s play-by-play) */
+.csi-timeline { margin-top: 12px; }
+.csi-timeline summary { cursor: pointer; color: var(--accent); font-size: 13px; user-select: none; }
+.csi-timeline summary:hover { filter: brightness(1.1); }
+.csi-tl { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+.csi-tl li {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 2px 0;
+  border-top: 1px solid var(--line);
+}
