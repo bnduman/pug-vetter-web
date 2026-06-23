@@ -56,6 +56,7 @@ function analyzeDeath(death, fight, idx) {
   let healCount = 0;
   let lastHealAt;
   let lastDamage;
+  let lastDamageAt; // timestamp of the killing-blow candidate
   let defensiveUsed = false; // a tracked defensive cooldown used within the window
 
   for (const e of fight.events) {
@@ -81,7 +82,12 @@ function analyzeDeath(death, fight, idx) {
       entry.total += amt;
       entry.avoidable = entry.avoidable || !!e.avoidable;
       damageByAbility.set(name, entry);
-      lastDamage = { abilityName: name, amount: amt };
+      // Killing blow = the damage closest to death by TIMESTAMP, not by array
+      // order (event streams are normally sorted, but don't rely on it).
+      if (lastDamageAt === undefined || e.timestamp >= lastDamageAt) {
+        lastDamage = { abilityName: name, amount: amt };
+        lastDamageAt = e.timestamp;
+      }
       timeline.push({
         ms, kind: "damage", ability: name, amount: amt, avoidable: !!e.avoidable,
         source: idx.get(e.sourceId)?.name, hpPct: e.hpPct,

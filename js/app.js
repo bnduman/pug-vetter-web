@@ -295,7 +295,10 @@ function addToRoster(data) {
       spec: data.spec,
       role: data.role,
       ilvl: data.enchants?.avg_item_level ?? null,
-      gs: data.gearscore ?? null,
+      // The card shows a single spec (the primary set), so pair it with THAT
+      // set's GearScore — data.gearscore is the best-of-all-specs figure and
+      // would mismatch the spec label for dual-role players.
+      gs: data.gearSets?.[0]?.gearscore ?? data.gearscore ?? null,
       missEnch: data.enchants?.missing_required ?? 0,
       emptySock: data.enchants?.empty_sockets ?? 0,
       zone: "bench",

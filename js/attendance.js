@@ -56,6 +56,11 @@ export async function getAttendanceMap() {
       reportsScanned += 1;
       for (const p of report.players ?? []) {
         if (!p?.name) continue;
+        // WCL marks bench/standby sign-ups with presence === 2; only presence
+        // === 1 (actually in the raid) counts as "raided with us". Treat a
+        // missing/unknown value as present so we never silently drop everyone
+        // if the field shape changes.
+        if (p.presence === 2) continue;
         const k = p.name.toLowerCase();
         const entry = players[k] ?? { name: p.name, count: 0, lastTs: 0, raids: [] };
         entry.count += 1;

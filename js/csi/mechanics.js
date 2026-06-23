@@ -82,7 +82,7 @@ export function mechanicFindings(fight, idx) {
   }
 
   // Attribute deaths: a mechanic "fed" a death if the victim took it within the
-  // 10s before dying.
+  // recap window (RECAP_WINDOW_MS, 20s) before dying.
   for (const d of fight.events) {
     if (d.type !== "death" || !d.targetId) continue;
     const role = idx.get(d.targetId)?.role;

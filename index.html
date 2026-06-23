@@ -9,12 +9,12 @@
 </head>
 <body>
 
-<nav class="tabs" id="tabs">
-  <button class="tab active" type="button" data-tab="vetter">⚔️ PuG Vetter</button>
-  <button class="tab" type="button" data-tab="autopsy">🔬 Wipe Autopsy</button>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Views">
+  <button class="tab active" type="button" role="tab" id="tab-vetter" aria-controls="view-vetter" aria-selected="true" data-tab="vetter">⚔️ PuG Vetter</button>
+  <button class="tab" type="button" role="tab" id="tab-autopsy" aria-controls="view-autopsy" aria-selected="false" data-tab="autopsy">🔬 Wipe Autopsy</button>
 </nav>
 
-<div class="layout" id="view-vetter">
+<div class="layout" id="view-vetter" role="tabpanel" aria-labelledby="tab-vetter">
 
   <section class="main">
     <header>
@@ -56,7 +56,7 @@
 
 </div>
 
-<section id="view-autopsy" hidden>
+<section id="view-autopsy" role="tabpanel" aria-labelledby="tab-autopsy" hidden>
   <div id="autopsy"></div>
 </section>
 

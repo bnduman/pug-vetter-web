@@ -7,7 +7,11 @@ const views = {
 };
 
 function activate(name) {
-  for (const t of tabs) t.classList.toggle("active", t.dataset.tab === name);
+  for (const t of tabs) {
+    const on = t.dataset.tab === name;
+    t.classList.toggle("active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
+  }
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
 }
 
