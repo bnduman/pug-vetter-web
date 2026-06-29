@@ -55,12 +55,25 @@ query($code: String!, $fightID: Int!, $start: Float!, $end: Float!, $dataType: E
 }
 `;
 
-// Roles + specs for a fight (combatant info omitted — only tank/healer/dps).
+// Roles + specs + per-player gear (for the enchant check) for a fight.
 export const PLAYER_DETAILS_QUERY = `
 query($code: String!, $fightIDs: [Int]!) {
   reportData {
     report(code: $code) {
-      playerDetails(fightIDs: $fightIDs, includeCombatantInfo: false)
+      playerDetails(fightIDs: $fightIDs, includeCombatantInfo: true)
+    }
+  }
+}
+`;
+
+// Aggregated friendly buffs for a fight — used to count flask/food/drums
+// coverage (pre-pull consumables don't emit per-player events, so the table's
+// per-aura totals are the reliable source).
+export const BUFFS_TABLE_QUERY = `
+query($code: String!, $fightID: Int!, $start: Float!, $end: Float!) {
+  reportData {
+    report(code: $code) {
+      table(fightIDs: [$fightID], startTime: $start, endTime: $end, dataType: Buffs, hostilityType: Friendlies)
     }
   }
 }

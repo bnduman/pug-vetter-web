@@ -5,7 +5,10 @@
 import { CONFIG } from "../config.js";
 import { cacheGet, cacheSet, postGraphQL, WCLError } from "../wcl.js";
 import { buildReport } from "./normalize.js";
-import { PLAYER_DETAILS_QUERY, REPORT_EVENTS_QUERY, REPORT_META_QUERY } from "./queries.js";
+import { raidConsumables, raidEnchants } from "./prep.js";
+import {
+  BUFFS_TABLE_QUERY, PLAYER_DETAILS_QUERY, REPORT_EVENTS_QUERY, REPORT_META_QUERY,
+} from "./queries.js";
 
 // Friendly-side event streams the death-recap engine needs. Minimal, to limit
 // rate-limit cost: deaths, damage taken, healing, casts (for defensives).
@@ -58,6 +61,11 @@ async function fetchPlayerDetails(code, fightId) {
   return data?.reportData?.report?.playerDetails;
 }
 
+async function fetchBuffsTable(code, fightId, start, end) {
+  const data = await postGraphQL(BUFFS_TABLE_QUERY, { code, fightID: fightId, start, end });
+  return data?.reportData?.report?.table ?? null;
+}
+
 /**
  * fetchReport(code)           -> overview: all boss fights, no events
  * fetchReport(code, fightId)  -> that fight with its events + player roles
@@ -78,13 +86,30 @@ export async function fetchReport(code, fightId = null) {
     }
     eventsByFight[fightId] = events;
 
+    // playerDetails now carries gear (includeCombatantInfo) and the buffs table
+    // is sizable, so both ride the in-memory cache rather than localStorage.
     const pdKey = `csi_pd_${code}_${fightId}`;
-    let pd = cacheGet(pdKey, TTL);
-    if (pd == null) {
+    let pd = eventCache.get(pdKey);
+    if (pd === undefined) {
       pd = (await fetchPlayerDetails(code, fightId)) ?? null;
-      if (pd != null) cacheSet(pdKey, pd);
+      eventCache.set(pdKey, pd);
     }
     report.playerDetails = pd;
+
+    const buKey = `csi_buffs_${code}_${fightId}`;
+    let buffs = eventCache.get(buKey);
+    if (buffs === undefined) {
+      buffs = await fetchBuffsTable(code, fightId, fight.startTime ?? 0, fight.endTime ?? 0);
+      eventCache.set(buKey, buffs);
+    }
+
+    const built = buildReport(code, report, fightId, eventsByFight);
+    const builtFight = built.fights.find((f) => f.id === String(fightId));
+    if (builtFight) {
+      const enchants = raidEnchants(pd);
+      builtFight.prep = { enchants, consumables: raidConsumables(buffs, enchants.total) };
+    }
+    return built;
   }
 
   return buildReport(code, report, fightId, eventsByFight);

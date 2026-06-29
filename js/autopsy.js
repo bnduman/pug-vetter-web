@@ -132,6 +132,8 @@ function fightView(fightId) {
        </div>`
     : "";
 
+  const prepBlock = prepCard(fight.prep);
+
   const deaths = summary.deaths.length
     ? summary.deaths.map(deathCard).join("")
     : `<p class="dim">No deaths recorded in this fight.</p>`;
@@ -154,10 +156,43 @@ function fightView(fightId) {
         ${checklist}
       </div>
 
+      ${prepBlock}
       ${mechanicsBlock}
 
       <h3>Deaths <span class="dim">(${summary.deaths.length})</span></h3>
       ${deaths}
+    </div>`;
+}
+
+// Per-pull raid prep: flask/food/drums coverage + who's missing enchants.
+function prepCard(prep) {
+  if (!prep) return "";
+  const c = prep.consumables;
+  const en = prep.enchants;
+
+  const consLine = c && c.raidSize
+    ? `<p class="csi-prep-cons">🧪 Flasks <b>${c.flask}/${c.raidSize}</b> &nbsp; 🍖 Food <b>${c.food}/${c.raidSize}</b> &nbsp; 🥁 Drums <b>${c.drums}/${c.raidSize}</b></p>`
+    : "";
+
+  let enchBlock;
+  if (!en || en.covered === 0) {
+    enchBlock = `<p class="dim">No gear data for this pull — advanced combat logging may have been off.</p>`;
+  } else {
+    const missing = en.players.filter((p) => p.missingCount > 0);
+    const noData = en.total > en.covered ? ` <span class="dim">(${en.total - en.covered} without gear data)</span>` : "";
+    const head = `<h4>Enchants — ${en.covered - missing.length}/${en.covered} fully enchanted${noData}</h4>`;
+    const list = missing.length
+      ? `<ul class="csi-prep-miss">${missing.map((p) =>
+          `<li><span class="warn">⚠ ${esc(p.name)}</span> <span class="dim">${esc(p.role)}</span> — ${esc(p.missing.join(", "))}</li>`).join("")}</ul>`
+      : `<p class="ok">✔ Everyone enchanted.</p>`;
+    enchBlock = head + list;
+  }
+
+  return `
+    <div class="csi-card">
+      <div class="csi-card-head"><h3>Raid prep</h3></div>
+      ${consLine}
+      ${enchBlock}
     </div>`;
 }
 

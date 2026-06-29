@@ -463,3 +463,9 @@ footer a { color: var(--accent); }
   border-top: 1px solid var(--line);
 }
 .csi-tl li > :last-child { text-align: right; }
+
+/* raid prep (per-pull enchant + consumable check) */
+.csi-prep-cons { font-size: 14px; margin: 2px 0 10px; }
+.csi-prep-cons b { font-variant-numeric: tabular-nums; }
+.csi-prep-miss { list-style: none; margin: 6px 0 0; padding: 0; font-size: 14px; }
+.csi-prep-miss li { padding: 2px 0; }

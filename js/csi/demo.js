@@ -33,6 +33,22 @@ const fight1 = {
   durationMs: 292_000,
   kill: false,
   bossPercentRemaining: 18,
+  prep: {
+    enchants: {
+      total: 9, covered: 9, players: [
+        { name: "Backstabz", role: "dps", missingCount: 2, missing: ["Hands", "Feet"] },
+        { name: "Huntex", role: "dps", missingCount: 1, missing: ["Back"] },
+        { name: "Sahmeran", role: "tank", missingCount: 0, missing: [] },
+        { name: "Thornblade", role: "tank", missingCount: 0, missing: [] },
+        { name: "Lightwell", role: "healer", missingCount: 0, missing: [] },
+        { name: "Naturae", role: "healer", missingCount: 0, missing: [] },
+        { name: "Shockheal", role: "healer", missingCount: 0, missing: [] },
+        { name: "Frostmage", role: "dps", missingCount: 0, missing: [] },
+        { name: "Shadowlock", role: "dps", missingCount: 0, missing: [] },
+      ],
+    },
+    consumables: { flask: 7, food: 9, drums: 3, raidSize: 9 },
+  },
   events: [
     dmg(15_000, "sahm", "Melee", 2100),
     heal(16_000, "light", "sahm", "Holy Light", 2600),
