@@ -8,6 +8,8 @@ import { actorIndex, mmss, num } from "./csi/format.js";
 import { summarizeFight } from "./csi/summary.js";
 import { toDiscordMarkdown } from "./csi/discord.js";
 import { gruulDemo } from "./csi/demo.js";
+import { QUALITY_COLORS } from "./analyze.js";
+import { ROLE_ICONS } from "./wcl-classes.js";
 
 const root = document.getElementById("autopsy");
 
@@ -164,36 +166,76 @@ function fightView(fightId) {
     </div>`;
 }
 
-// Per-pull raid prep: flask/food/drums coverage + who's missing enchants.
+// Per-pull raid prep: coverage summary + an expandable row per player showing
+// their consumables and every gear item's enchant.
 function prepCard(prep) {
-  if (!prep) return "";
-  const c = prep.consumables;
-  const en = prep.enchants;
+  if (!prep || !prep.players?.length) return "";
+  const c = prep.coverage;
+  const n = prep.raidSize;
 
-  const consLine = c && c.raidSize
-    ? `<p class="csi-prep-cons">🧪 Flasks <b>${c.flask}/${c.raidSize}</b> &nbsp; 🍖 Food <b>${c.food}/${c.raidSize}</b> &nbsp; 🥁 Drums <b>${c.drums}/${c.raidSize}</b></p>`
-    : "";
-
-  let enchBlock;
-  if (!en || en.covered === 0) {
-    enchBlock = `<p class="dim">No gear data for this pull — advanced combat logging may have been off.</p>`;
-  } else {
-    const missing = en.players.filter((p) => p.missingCount > 0);
-    const noData = en.total > en.covered ? ` <span class="dim">(${en.total - en.covered} without gear data)</span>` : "";
-    const head = `<h4>Enchants — ${en.covered - missing.length}/${en.covered} fully enchanted${noData}</h4>`;
-    const list = missing.length
-      ? `<ul class="csi-prep-miss">${missing.map((p) =>
-          `<li><span class="warn">⚠ ${esc(p.name)}</span> <span class="dim">${esc(p.role)}</span> — ${esc(p.missing.join(", "))}</li>`).join("")}</ul>`
-      : `<p class="ok">✔ Everyone enchanted.</p>`;
-    enchBlock = head + list;
-  }
+  const cov = (emoji, label, have, total) => {
+    const cls = total && have >= total ? "csi-ok" : have > 0 ? "csi-mid" : "csi-bad";
+    return `<span class="csi-cov ${cls}">${emoji} ${label} <b>${have}/${total || 0}</b></span>`;
+  };
+  const coverage = `<div class="csi-cov-row">
+    ${cov("🧪", "Flasks", c.flask, n)}
+    ${cov("🧴", "Elixirs", c.elixir, n)}
+    ${cov("🍖", "Food", c.food, n)}
+    ${cov("✨", "Enchanted", c.enchanted, c.gearCovered)}
+  </div>`;
 
   return `
     <div class="csi-card">
-      <div class="csi-card-head"><h3>Raid prep</h3></div>
-      ${consLine}
-      ${enchBlock}
+      <div class="csi-card-head"><h3>Raid prep</h3><span class="dim">${n} players · click a name for gear</span></div>
+      ${coverage}
+      <div class="csi-prep-list">${prep.players.map(prepRow).join("")}</div>
     </div>`;
+}
+
+function prepRow(p) {
+  const role = ROLE_ICONS[p.role] ?? "";
+  const cons = p.consumables;
+
+  const flaskChip = cons.flask
+    ? `<span class="csi-pill csi-ok" title="${esc(cons.flask)}">🧪 Flask</span>`
+    : cons.elixirs.length
+      ? `<span class="csi-pill csi-mid" title="${esc(cons.elixirs.join(", "))}">🧴 ${cons.elixirs.length} elixir${cons.elixirs.length > 1 ? "s" : ""}</span>`
+      : `<span class="csi-pill csi-bad">🧪 none</span>`;
+  const foodChip = cons.food
+    ? `<span class="csi-pill csi-ok">🍖 Food</span>`
+    : `<span class="csi-pill csi-bad">🍖 none</span>`;
+  const enchChip = !p.hasGear
+    ? `<span class="csi-pill csi-dim">no gear data</span>`
+    : p.missingCount === 0
+      ? `<span class="csi-pill csi-ok">✨ enchanted</span>`
+      : `<span class="csi-pill csi-bad">✨ ${p.missingCount} missing</span>`;
+
+  const gear = p.gear.length
+    ? `<div class="csi-gear">${p.gear.map(gearRow).join("")}</div>`
+    : `<p class="dim">No gear data for this pull.</p>`;
+
+  return `
+    <details class="csi-prep-player">
+      <summary>
+        <span class="csi-pname">${role} ${esc(p.name)}</span>
+        <span class="csi-pchips">${flaskChip}${foodChip}${enchChip}</span>
+      </summary>
+      ${gear}
+    </details>`;
+}
+
+function gearRow(g) {
+  const color = QUALITY_COLORS[g.quality] ?? "#fff";
+  const ench = g.enchant
+    ? `<span class="ok">${esc(g.enchant)}</span>`
+    : g.enchantable
+      ? `<span class="bad">✗ no enchant</span>`
+      : `<span class="dim">—</span>`;
+  return `<div class="csi-gear-row">
+    <span class="dim">${esc(g.slotLabel)}</span>
+    <span class="csi-gname" style="color:${color}">${esc(g.name)}</span>
+    <span>${ench}</span>
+  </div>`;
 }
 
 function deathCard(d) {

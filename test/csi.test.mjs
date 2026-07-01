@@ -8,7 +8,7 @@ import { normalizeEvent, normalizeActors, playerRoles, normalizeFight } from "..
 import { actorIndex } from "../js/csi/format.js";
 import { applyMechanicRules, mechanicFindings } from "../js/csi/mechanics.js";
 import { summarizeFight } from "../js/csi/summary.js";
-import { raidEnchants, raidConsumables } from "../js/csi/prep.js";
+import { buildRaidPrep, classifyConsumables, playerList } from "../js/csi/prep.js";
 
 // --- helpers ---------------------------------------------------------------
 const idxOf = (actors) => new Map(actors.map((a) => [a.id, a]));
@@ -155,32 +155,64 @@ const gearWith = (missingSlot) => REQ_SLOTS.map((s) => ({
   permanentEnchant: s === missingSlot ? 0 : 1,
 }));
 
-test("raidEnchants: names players with missing required enchants", () => {
-  const pd = { data: { playerDetails: {
-    tanks: [{ name: "Tankman", combatantInfo: { gear: gearWith(9) } }], // missing Hands
-    healers: [{ name: "Noinfo" }], // no combatantInfo -> not covered
-    dps: [{ name: "Dpsguy", combatantInfo: { gear: gearWith(null) } }], // all enchanted
-  } } };
-  const r = raidEnchants(pd);
-  assert.equal(r.total, 3);
-  assert.equal(r.covered, 2);
-  const tank = r.players.find((p) => p.name === "Tankman");
-  assert.equal(tank.missingCount, 1);
-  assert.ok(tank.missing.includes("Hands"));
-  assert.equal(r.players.find((p) => p.name === "Dpsguy").missingCount, 0);
+test("classifyConsumables: flask vs elixirs vs food, ignoring other buffs", () => {
+  const c = classifyConsumables([
+    { name: "Flask of Relentless Assault" },
+    { name: "Well Fed" },
+    { name: "Elixir of Draenic Wisdom" },
+    { name: "Power Word: Fortitude" }, // not a consumable
+  ]);
+  assert.equal(c.flask, "Flask of Relentless Assault");
+  assert.equal(c.food, true);
+  assert.deepEqual(c.elixirs, ["Elixir of Draenic Wisdom"]);
+  const none = classifyConsumables([]);
+  assert.equal(none.flask, null);
+  assert.equal(none.food, false);
+  assert.deepEqual(none.elixirs, []);
 });
 
-test("raidConsumables: counts flask/food/drums, capped at raid size", () => {
-  const table = { data: { auras: [
-    { name: "Flask of Relentless Assault", totalUses: 18 },
-    { name: "Flask of Pure Death", totalUses: 3 },
-    { name: "Well Fed", totalUses: 20 },
-    { name: "Drums of Battle", totalUses: 10 },
-    { name: "Power Word: Fortitude", totalUses: 25 }, // not a consumable
-  ] } };
-  const c = raidConsumables(table, 25);
-  assert.equal(c.flask, 21);
-  assert.equal(c.food, 20);
-  assert.equal(c.drums, 10);
-  assert.equal(c.raidSize, 25);
+test("playerList: flattens roles with ids", () => {
+  const pd = { data: { playerDetails: {
+    tanks: [{ id: 1, name: "T" }], healers: [], dps: [{ id: 3, name: "D" }],
+  } } };
+  assert.deepEqual(playerList(pd), [
+    { id: 1, name: "T", role: "tank" }, { id: 3, name: "D", role: "dps" },
+  ]);
+});
+
+test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering", () => {
+  const pd = { data: { playerDetails: {
+    tanks: [{ id: 1, name: "Tankman", combatantInfo: { gear: gearWith(9) } }], // missing Hands
+    healers: [{ id: 2, name: "Noinfo" }], // no combatantInfo
+    dps: [{ id: 3, name: "Dpsguy", combatantInfo: { gear: gearWith(null) } }], // all enchanted
+  } } };
+  const cons = {
+    1: [{ name: "Flask of Fortification" }, { name: "Well Fed" }],
+    3: [{ name: "Elixir of Major Agility" }],
+  };
+  const r = buildRaidPrep(pd, cons);
+  assert.equal(r.raidSize, 3);
+  assert.equal(r.coverage.flask, 1);
+  assert.equal(r.coverage.elixir, 1);
+  assert.equal(r.coverage.food, 1);
+  assert.equal(r.coverage.gearCovered, 2);
+  assert.equal(r.coverage.enchanted, 1); // only Dpsguy is fully enchanted
+
+  const tank = r.players.find((p) => p.name === "Tankman");
+  assert.equal(tank.missingCount, 1);
+  assert.equal(tank.consumables.flask, "Flask of Fortification");
+  // gear rows carry per-item enchant details for the UI
+  const hands = tank.gear.find((g) => g.slotLabel === "Hands");
+  assert.equal(hands.enchant, null);
+  assert.equal(hands.enchantable, true);
+  const head = tank.gear.find((g) => g.slotLabel === "Head");
+  assert.ok(head.enchant); // enchanted item resolves to a name
+
+  const noinfo = r.players.find((p) => p.name === "Noinfo");
+  assert.equal(noinfo.hasGear, false);
+  assert.equal(noinfo.missingCount, null);
+
+  // ordering: tank bucket first, dps last
+  assert.equal(r.players[0].role, "tank");
+  assert.equal(r.players.at(-1).role, "dps");
 });

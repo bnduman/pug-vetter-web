@@ -5,10 +5,13 @@
 import { CONFIG } from "../config.js";
 import { cacheGet, cacheSet, postGraphQL, WCLError } from "../wcl.js";
 import { buildReport } from "./normalize.js";
-import { raidConsumables, raidEnchants } from "./prep.js";
+import { buildRaidPrep, playerList } from "./prep.js";
 import {
-  BUFFS_TABLE_QUERY, PLAYER_DETAILS_QUERY, REPORT_EVENTS_QUERY, REPORT_META_QUERY,
+  PLAYER_BUFFS_QUERY, PLAYER_DETAILS_QUERY, REPORT_EVENTS_QUERY, REPORT_META_QUERY,
 } from "./queries.js";
+
+// How many per-player buff queries to run at once when reading consumables.
+const BUFF_CONCURRENCY = 6;
 
 // Friendly-side event streams the death-recap engine needs. Minimal, to limit
 // rate-limit cost: deaths, damage taken, healing, casts (for defensives).
@@ -61,9 +64,37 @@ async function fetchPlayerDetails(code, fightId) {
   return data?.reportData?.report?.playerDetails;
 }
 
-async function fetchBuffsTable(code, fightId, start, end) {
-  const data = await postGraphQL(BUFFS_TABLE_QUERY, { code, fightID: fightId, start, end });
-  return data?.reportData?.report?.table ?? null;
+async function fetchPlayerBuffs(code, fightId, start, end, sourceID) {
+  const data = await postGraphQL(PLAYER_BUFFS_QUERY, {
+    code, fightID: fightId, start, end, sourceID,
+  });
+  const table = data?.reportData?.report?.table;
+  return (table?.data ?? table)?.auras ?? [];
+}
+
+// Run an async fn over items with a concurrency cap; results stay index-aligned.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+// Per-player consumables: one Buffs query per player, concurrency-limited.
+async function fetchConsumables(code, fightId, start, end, players) {
+  const ids = players.map((p) => p.id).filter((id) => id != null);
+  const aurasByIndex = await mapLimit(ids, BUFF_CONCURRENCY, (id) =>
+    fetchPlayerBuffs(code, fightId, start, end, id).catch(() => []),
+  );
+  const byId = {};
+  ids.forEach((id, i) => { byId[id] = aurasByIndex[i]; });
+  return byId;
 }
 
 /**
@@ -96,19 +127,23 @@ export async function fetchReport(code, fightId = null) {
     }
     report.playerDetails = pd;
 
-    const buKey = `csi_buffs_${code}_${fightId}`;
-    let buffs = eventCache.get(buKey);
-    if (buffs === undefined) {
-      buffs = await fetchBuffsTable(code, fightId, fight.startTime ?? 0, fight.endTime ?? 0);
-      eventCache.set(buKey, buffs);
+    // Per-pull raid prep (per-player gear/enchants + consumables). The
+    // per-player consumable queries are the expensive part, so cache the whole
+    // computed prep per fight.
+    const prepKey = `csi_prep_${code}_${fightId}`;
+    let prep = eventCache.get(prepKey);
+    if (prep === undefined) {
+      const players = playerList(pd);
+      const consumablesById = players.length
+        ? await fetchConsumables(code, fightId, fight.startTime ?? 0, fight.endTime ?? 0, players)
+        : {};
+      prep = buildRaidPrep(pd, consumablesById);
+      eventCache.set(prepKey, prep);
     }
 
     const built = buildReport(code, report, fightId, eventsByFight);
     const builtFight = built.fights.find((f) => f.id === String(fightId));
-    if (builtFight) {
-      const enchants = raidEnchants(pd);
-      builtFight.prep = { enchants, consumables: raidConsumables(buffs, enchants.total) };
-    }
+    if (builtFight) builtFight.prep = prep;
     return built;
   }
 

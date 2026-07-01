@@ -24,6 +24,67 @@ const heal = (timestamp, sourceId, targetId, abilityName, amount, hp) => ({
 });
 const death = (timestamp, targetId, sourceId = "gruul") => ({ timestamp, type: "death", sourceId, targetId });
 
+// --- demo raid-prep (same shape as prep.js buildRaidPrep) -------------------
+// Gear rows carry only the fields the prep UI renders.
+const gi = (slotLabel, name, quality, enchant, enchantable = true) =>
+  ({ slotLabel, name, quality, enchant, enchantable });
+
+const TANK_GEAR = [
+  gi("Head", "Justicar Faceguard", 4, "Glyph of the Defender"),
+  gi("Shoulder", "Justicar Shoulderguards", 4, "Greater Inscription of Warding"),
+  gi("Back", "Devilshark Cape", 4, "Enchant Cloak - Dodge"),
+  gi("Chest", "Justicar Chestguard", 4, "Enchant Chest - Exceptional Health"),
+  gi("Wrist", "Bracers of the Green Fortress", 4, "Enchant Bracer - Major Defense"),
+  gi("Hands", "Justicar Handguards", 4, "Enchant Gloves - Major Agility"),
+  gi("Legs", "Unwavering Legguards", 4, "Nethercobra Leg Armor"),
+  gi("Feet", "Boots of Elusion", 4, "Enchant Boots - Fortitude"),
+  gi("Main Hand", "The Sun Eater", 4, "Enchant Weapon - Mongoose"),
+  gi("Off Hand", "Aldori Legacy Defender", 4, "Enchant Shield - Major Stamina"),
+  gi("Trinket", "Moroes' Lucky Pocket Watch", 4, null, false),
+];
+const ROGUE_GEAR = [
+  gi("Head", "Netherblade Facemask", 4, "Glyph of Ferocity"),
+  gi("Shoulder", "Netherblade Shoulderpads", 4, "Greater Inscription of Vengeance"),
+  gi("Back", "Drape of the Dark Reavers", 4, "Enchant Cloak - Greater Agility"),
+  gi("Chest", "Netherblade Chestpiece", 4, "Enchant Chest - Exceptional Stats"),
+  gi("Wrist", "Nightfall Wristguards", 4, "Enchant Bracer - Brawn"),
+  gi("Hands", "Netherblade Gloves", 4, null),
+  gi("Legs", "Skulker's Greaves", 4, "Nethercobra Leg Armor"),
+  gi("Feet", "Edgewalker Longboots", 4, null),
+  gi("Main Hand", "Latro's Shifting Sword", 4, "Enchant Weapon - Mongoose"),
+  gi("Off Hand", "The Night Blade", 4, "Enchant Weapon - Executioner"),
+  gi("Trinket", "Bloodlust Brooch", 4, null, false),
+];
+const SHORT_GEAR = (missingSlot = null) => [
+  gi("Head", "Light-Collar of the Incarnate", 4, "Glyph of Renewal"),
+  gi("Back", "Shawl of Shifting Probabilities", 4, missingSlot === "Back" ? null : "Enchant Cloak - Subtlety"),
+  gi("Chest", "Robes of the Incarnate", 4, "Enchant Chest - Restore Mana Prime"),
+  gi("Main Hand", "Light's Justice", 4, "Enchant Weapon - Major Healing"),
+];
+
+const P = (id, name, role, gear, missingCount, flask, elixirs, food) => ({
+  id, name, role, hasGear: gear.length > 0, missingCount, gear,
+  consumables: { flask, elixirs, food },
+});
+
+function demoPrep() {
+  return {
+    raidSize: 9,
+    coverage: { flask: 3, elixir: 3, food: 7, enchanted: 6, gearCovered: 9 },
+    players: [
+      P(1, "Sahmeran", "tank", TANK_GEAR, 0, "Flask of Fortification", [], true),
+      P(2, "Thornblade", "tank", SHORT_GEAR(), 0, null, ["Elixir of Major Fortitude", "Elixir of Mastery"], true),
+      P(3, "Shockheal", "healer", SHORT_GEAR("Back"), 1, null, [], true),
+      P(4, "Lightwell", "healer", SHORT_GEAR(), 0, "Flask of Mighty Restoration", [], true),
+      P(5, "Naturae", "healer", SHORT_GEAR(), 0, null, ["Elixir of Draenic Wisdom"], false),
+      P(6, "Backstabz", "dps", ROGUE_GEAR, 2, null, [], false),
+      P(7, "Huntex", "dps", SHORT_GEAR("Back"), 1, null, [], true),
+      P(8, "Frostmage", "dps", SHORT_GEAR(), 0, "Flask of Supreme Power", [], true),
+      P(9, "Shadowlock", "dps", SHORT_GEAR(), 0, null, ["Adept's Elixir", "Elixir of Major Shadow Power"], true),
+    ],
+  };
+}
+
 const fight1 = {
   id: "gruul-1",
   bossName: "Gruul the Dragonkiller",
@@ -33,22 +94,7 @@ const fight1 = {
   durationMs: 292_000,
   kill: false,
   bossPercentRemaining: 18,
-  prep: {
-    enchants: {
-      total: 9, covered: 9, players: [
-        { name: "Backstabz", role: "dps", missingCount: 2, missing: ["Hands", "Feet"] },
-        { name: "Huntex", role: "dps", missingCount: 1, missing: ["Back"] },
-        { name: "Sahmeran", role: "tank", missingCount: 0, missing: [] },
-        { name: "Thornblade", role: "tank", missingCount: 0, missing: [] },
-        { name: "Lightwell", role: "healer", missingCount: 0, missing: [] },
-        { name: "Naturae", role: "healer", missingCount: 0, missing: [] },
-        { name: "Shockheal", role: "healer", missingCount: 0, missing: [] },
-        { name: "Frostmage", role: "dps", missingCount: 0, missing: [] },
-        { name: "Shadowlock", role: "dps", missingCount: 0, missing: [] },
-      ],
-    },
-    consumables: { flask: 7, food: 9, drums: 3, raidSize: 9 },
-  },
+  prep: demoPrep(),
   events: [
     dmg(15_000, "sahm", "Melee", 2100),
     heal(16_000, "light", "sahm", "Holy Light", 2600),

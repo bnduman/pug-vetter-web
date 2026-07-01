@@ -465,7 +465,45 @@ footer a { color: var(--accent); }
 .csi-tl li > :last-child { text-align: right; }
 
 /* raid prep (per-pull enchant + consumable check) */
-.csi-prep-cons { font-size: 14px; margin: 2px 0 10px; }
-.csi-prep-cons b { font-variant-numeric: tabular-nums; }
-.csi-prep-miss { list-style: none; margin: 6px 0 0; padding: 0; font-size: 14px; }
-.csi-prep-miss li { padding: 2px 0; }
+.csi-cov-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px; }
+.csi-cov {
+  font-size: 13px; padding: 5px 11px; border-radius: 16px;
+  border: 1px solid var(--line); background: var(--panel-2);
+}
+.csi-cov b { font-variant-numeric: tabular-nums; }
+.csi-ok { color: var(--good); }
+.csi-mid { color: var(--accent); }
+.csi-bad { color: var(--bad); }
+.csi-dim { color: var(--muted); }
+
+.csi-prep-list { display: flex; flex-direction: column; gap: 5px; }
+.csi-prep-player {
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-2); overflow: hidden;
+}
+.csi-prep-player > summary {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 12px; cursor: pointer; list-style: none; font-size: 14px;
+}
+.csi-prep-player > summary::-webkit-details-marker { display: none; }
+.csi-prep-player > summary::after {
+  content: "▸"; color: var(--muted); font-size: 12px; margin-left: 2px; transition: transform .15s;
+}
+.csi-prep-player[open] > summary::after { transform: rotate(90deg); }
+.csi-prep-player[open] > summary { border-bottom: 1px solid var(--line); }
+.csi-prep-player > summary:hover { background: var(--panel); }
+.csi-pname { font-weight: 600; flex: 1; }
+.csi-pchips { display: flex; gap: 6px; flex-wrap: wrap; }
+.csi-pill {
+  font-size: 12px; padding: 2px 9px; border-radius: 12px;
+  border: 1px solid currentColor; white-space: nowrap;
+}
+.csi-pill.csi-dim { border-color: var(--line); }
+
+.csi-gear { padding: 4px 12px 10px; }
+.csi-gear-row {
+  display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px;
+  align-items: baseline; padding: 3px 0; font-size: 13px; border-top: 1px solid var(--line);
+}
+.csi-gear-row:first-child { border-top: none; }
+.csi-gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

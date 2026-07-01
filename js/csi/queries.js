@@ -66,14 +66,15 @@ query($code: String!, $fightIDs: [Int]!) {
 }
 `;
 
-// Aggregated friendly buffs for a fight — used to count flask/food/drums
-// coverage (pre-pull consumables don't emit per-player events, so the table's
-// per-aura totals are the reliable source).
-export const BUFFS_TABLE_QUERY = `
-query($code: String!, $fightID: Int!, $start: Float!, $end: Float!) {
+// One player's buffs for a fight (sourceID-filtered) — used to read their
+// specific flask/elixir/food. Pre-pull consumables don't emit per-player
+// events, so the per-source buffs table is the only reliable source; we fetch
+// it once per player (concurrency-limited) when a pull is opened.
+export const PLAYER_BUFFS_QUERY = `
+query($code: String!, $fightID: Int!, $start: Float!, $end: Float!, $sourceID: Int!) {
   reportData {
     report(code: $code) {
-      table(fightIDs: [$fightID], startTime: $start, endTime: $end, dataType: Buffs, hostilityType: Friendlies)
+      table(fightIDs: [$fightID], startTime: $start, endTime: $end, dataType: Buffs, hostilityType: Friendlies, sourceID: $sourceID)
     }
   }
 }

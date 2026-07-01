@@ -1,7 +1,8 @@
 "use strict";
-// Per-pull raid prep: a per-player enchant check (who's missing what) and
-// flask/food/drums coverage counts. Reuses the PuG Vetter enchant logic.
-import { analyzeEnchants } from "../analyze.js";
+// Per-pull raid prep: for each player, their full gear list with the enchant on
+// every item, and their specific consumables (flask / elixirs / food). Reuses
+// the PuG Vetter gear + enchant logic.
+import { analyzeEnchants, buildGearList } from "../analyze.js";
 
 function unwrapPlayerDetails(pd) {
   if (pd && typeof pd === "object" && pd.data && typeof pd.data === "object") {
@@ -10,55 +11,71 @@ function unwrapPlayerDetails(pd) {
   return pd ?? {};
 }
 
+const ROLE_BUCKETS = [["tanks", "tank"], ["healers", "healer"], ["dps", "dps"]];
+
+/** Flat list of {id, name, role} for every player in a playerDetails blob. */
+export function playerList(playerDetails) {
+  const pd = unwrapPlayerDetails(playerDetails);
+  const out = [];
+  for (const [bucket, role] of ROLE_BUCKETS) {
+    for (const p of pd[bucket] ?? []) out.push({ id: p.id, name: p.name, role });
+  }
+  return out;
+}
+
+/** Classify a player's buff auras into the consumables that matter for prep. */
+export function classifyConsumables(auras) {
+  let flask = null;
+  const elixirs = [];
+  let food = false;
+  for (const a of auras ?? []) {
+    const n = a.name ?? "";
+    if (/^flask of/i.test(n)) flask = n;
+    else if (/well fed/i.test(n)) food = true;
+    else if (/elixir/i.test(n)) elixirs.push(n);
+  }
+  return { flask, elixirs, food };
+}
+
 /**
- * Per-player enchant status from combatantInfo gear. Returns
- * { players:[{name, role, missingCount, missing:[slotLabel]}], covered, total }.
- * `covered` counts players we actually had gear for (combat info can be absent).
+ * Build the full per-pull prep model.
+ * @param playerDetails  WCL playerDetails (includeCombatantInfo) for the fight
+ * @param consumablesById  map of player id -> their buff auras (per-player)
  */
-export function raidEnchants(playerDetails) {
+export function buildRaidPrep(playerDetails, consumablesById = {}) {
   const pd = unwrapPlayerDetails(playerDetails);
   const players = [];
-  let total = 0;
-  let covered = 0;
-  for (const [bucket, role] of [["tanks", "tank"], ["healers", "healer"], ["dps", "dps"]]) {
+  for (const [bucket, role] of ROLE_BUCKETS) {
     for (const p of pd[bucket] ?? []) {
-      total += 1;
-      const gear = p.combatantInfo?.gear ?? [];
-      if (!gear.length) continue; // no combat info for this player/pull
-      covered += 1;
-      const en = analyzeEnchants(gear);
-      const missing = en.slots.filter((s) => s.status === "missing" && s.required).map((s) => s.slot);
-      players.push({ name: p.name, role, missingCount: en.missing_required, missing });
+      const gearRaw = p.combatantInfo?.gear ?? [];
+      const hasGear = gearRaw.length > 0;
+      const en = hasGear ? analyzeEnchants(gearRaw) : null;
+      players.push({
+        id: p.id,
+        name: p.name,
+        role,
+        hasGear,
+        missingCount: en ? en.missing_required : null,
+        gear: hasGear ? buildGearList(gearRaw) : [],
+        consumables: classifyConsumables(consumablesById[p.id]),
+      });
     }
   }
-  players.sort((a, b) => b.missingCount - a.missingCount || a.name.localeCompare(b.name));
-  return { players, covered, total };
+
+  const total = players.length;
+  const withGear = players.filter((p) => p.hasGear);
+  const coverage = {
+    flask: players.filter((p) => p.consumables.flask).length,
+    elixir: players.filter((p) => p.consumables.elixirs.length > 0).length,
+    food: players.filter((p) => p.consumables.food).length,
+    enchanted: withGear.filter((p) => p.missingCount === 0).length,
+    gearCovered: withGear.length,
+  };
+
+  // tanks first, then healers, then dps; within a role, unprepared first.
+  const order = { tank: 0, healer: 1, dps: 2 };
+  const score = (p) => (p.missingCount || 0) + (p.consumables.flask || p.consumables.elixirs.length ? 0 : 5);
+  players.sort((a, b) => (order[a.role] - order[b.role]) || (score(b) - score(a)) || a.name.localeCompare(b.name));
+
+  return { raidSize: total, coverage, players };
 }
-
-// Consumable buff name -> bucket. Flasks and the "Well Fed" food buff are the
-// high-value ones; Drums of Battle is a raid-cooldown worth tracking.
-const CONSUMABLE_BUCKETS = [
-  { key: "flask", label: "Flasks", re: /^flask of/i },
-  { key: "food", label: "Food", re: /well fed/i },
-  { key: "drums", label: "Drums", re: /^drums of battle/i },
-];
-
-/**
- * Flask/food/drums coverage from the Buffs table (per-aura totals). Returns
- * { flask, food, drums, raidSize }, each capped at raidSize.
- */
-export function raidConsumables(buffsTable, raidSize) {
-  const data = buffsTable?.data ?? buffsTable ?? {};
-  const auras = data.auras ?? [];
-  const tally = { flask: 0, food: 0, drums: 0 };
-  for (const a of auras) {
-    const name = a.name ?? "";
-    const users = a.totalUses ?? 0;
-    const bucket = CONSUMABLE_BUCKETS.find((b) => b.re.test(name));
-    if (bucket) tally[bucket.key] += users;
-  }
-  const cap = (n) => (raidSize ? Math.min(n, raidSize) : n);
-  return { flask: cap(tally.flask), food: cap(tally.food), drums: cap(tally.drums), raidSize };
-}
-
-export { CONSUMABLE_BUCKETS };
