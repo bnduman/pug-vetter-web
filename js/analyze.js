@@ -204,6 +204,7 @@ export function buildGearList(gear) {
       quality: item.quality ?? 1,
       itemLevel: item.itemLevel ?? null,
       enchant: item.permanentEnchant ? enchantNameOf(item) : null,
+      enchantId: item.permanentEnchant || null,
       enchantable: ENCHANT_SLOTS.some((r) => r.slot === slot),
       gems: (item.gems ?? []).map((g) => ({ id: g.id, icon: g.icon ?? null })),
       sockets: socketsOf(item),

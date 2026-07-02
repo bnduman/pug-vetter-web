@@ -9,7 +9,11 @@ import { summarizeFight } from "./csi/summary.js";
 import { toDiscordMarkdown } from "./csi/discord.js";
 import { gruulDemo } from "./csi/demo.js";
 import { QUALITY_COLORS } from "./analyze.js";
-import { ROLE_ICONS } from "./wcl-classes.js";
+import { ENCHANT_SPELLS } from "./enchant-spells.js";
+import { CLASS_COLORS, ROLE_ICONS } from "./wcl-classes.js";
+
+const WOWHEAD_ITEM = "https://www.wowhead.com/tbc/item=";
+const WOWHEAD_SPELL = "https://www.wowhead.com/tbc/spell=";
 
 const root = document.getElementById("autopsy");
 
@@ -166,74 +170,113 @@ function fightView(fightId) {
     </div>`;
 }
 
-// Per-pull raid prep: coverage summary + an expandable row per player showing
-// their consumables and every gear item's enchant.
+// Per-pull raid prep: coverage chips with progress fill, role sections, and an
+// expandable row per player (their exact consumables + every item's enchant).
 function prepCard(prep) {
   if (!prep || !prep.players?.length) return "";
   const c = prep.coverage;
   const n = prep.raidSize;
 
-  const cov = (emoji, label, have, total) => {
-    const cls = total && have >= total ? "csi-ok" : have > 0 ? "csi-mid" : "csi-bad";
-    return `<span class="csi-cov ${cls}">${emoji} ${label} <b>${have}/${total || 0}</b></span>`;
+  const cov = (emoji, label, have, total, title) => {
+    const pct = total ? Math.round((have / total) * 100) : 0;
+    const cls = total && have >= total ? "csi-ok" : pct >= 70 ? "csi-mid" : "csi-bad";
+    return `<span class="csi-cov ${cls}" style="--p:${pct}%"${title ? ` title="${esc(title)}"` : ""}>${emoji} ${label} <b>${have}/${total || 0}</b></span>`;
   };
   const coverage = `<div class="csi-cov-row">
-    ${cov("🧪", "Flasks", c.flask, n)}
-    ${cov("🧴", "Elixirs", c.elixir, n)}
-    ${cov("🍖", "Food", c.food, n)}
-    ${cov("✨", "Enchanted", c.enchanted, c.gearCovered)}
+    ${cov("🧪", "Flask-ready", c.flaskReady, n, "A flask, or a battle + guardian elixir pair (equivalent)")}
+    ${cov("🍖", "Well Fed", c.food, n)}
+    ${cov("✨", "Enchanted", c.enchanted, c.gearCovered, "Fully enchanted, of players with gear data")}
   </div>`;
+
+  const ROLE_SECTIONS = [["tank", "Tanks"], ["healer", "Healers"], ["dps", "DPS"]];
+  const sections = ROLE_SECTIONS.map(([role, label]) => {
+    const list = prep.players.filter((p) => p.role === role);
+    if (!list.length) return "";
+    const ready = list.filter((p) => p.issues === 0).length;
+    return `<div class="csi-prep-role">
+      <h4>${ROLE_ICONS[role] ?? ""} ${label} <span class="csi-role-count ${ready === list.length ? "ok" : "dim"}">${ready}/${list.length} ready</span></h4>
+      ${list.map(prepRow).join("")}
+    </div>`;
+  }).join("");
 
   return `
     <div class="csi-card">
-      <div class="csi-card-head"><h3>Raid prep</h3><span class="dim">${n} players · click a name for gear</span></div>
+      <div class="csi-card-head"><h3>Raid prep</h3><span class="dim">${c.fullyReady}/${n} fully ready · click a name for details</span></div>
       ${coverage}
-      <div class="csi-prep-list">${prep.players.map(prepRow).join("")}</div>
+      <div class="csi-prep-list">${sections}</div>
     </div>`;
 }
 
-function prepRow(p) {
-  const role = ROLE_ICONS[p.role] ?? "";
-  const cons = p.consumables;
+const pill = (cls, text, title) =>
+  `<span class="csi-pill csi-${cls}"${title ? ` title="${esc(title)}"` : ""}>${text}</span>`;
 
-  const flaskChip = cons.flask
-    ? `<span class="csi-pill csi-ok" title="${esc(cons.flask)}">🧪 Flask</span>`
-    : cons.elixirs.length
-      ? `<span class="csi-pill csi-mid" title="${esc(cons.elixirs.join(", "))}">🧴 ${cons.elixirs.length} elixir${cons.elixirs.length > 1 ? "s" : ""}</span>`
-      : `<span class="csi-pill csi-bad">🧪 none</span>`;
-  const foodChip = cons.food
-    ? `<span class="csi-pill csi-ok">🍖 Food</span>`
-    : `<span class="csi-pill csi-bad">🍖 none</span>`;
-  const enchChip = !p.hasGear
-    ? `<span class="csi-pill csi-dim">no gear data</span>`
+function prepRow(p) {
+  const cons = p.consumables;
+  const nameColor = CLASS_COLORS[p.class] ?? "var(--text)";
+
+  // Flask pill: flask and a battle+guardian pair are equally green.
+  let flaskPill;
+  if (cons.flask) {
+    flaskPill = pill("ok", "🧪 Flask", cons.flask);
+  } else if (cons.flaskReady) {
+    flaskPill = pill("ok", "🧴 Elixir pair", cons.elixirs.join(" + "));
+  } else if (cons.elixirs.length === 1) {
+    const missingHalf = cons.battle ? "guardian" : cons.guardian ? "battle" : "second";
+    flaskPill = pill("mid", `🧴 no ${missingHalf}`, `${cons.elixirs[0]} — add a ${missingHalf} elixir (or flask)`);
+  } else {
+    flaskPill = pill("bad", "🧪 none", "No flask or elixirs");
+  }
+  const foodPill = cons.food ? pill("ok", "🍖 Fed") : pill("bad", "🍖 no food");
+
+  const missingSlots = p.gear.filter((g) => g.enchantable && !g.enchant).map((g) => g.slotLabel);
+  const enchPill = !p.hasGear
+    ? pill("dim", "✨ no data", "No gear data for this pull")
     : p.missingCount === 0
-      ? `<span class="csi-pill csi-ok">✨ enchanted</span>`
-      : `<span class="csi-pill csi-bad">✨ ${p.missingCount} missing</span>`;
+      ? pill("ok", "✨ enchanted")
+      : pill("bad", `✨ ${p.missingCount} missing`, missingSlots.join(", "));
+
+  const status = p.issues === 0 ? "ready" : p.issues === 1 ? "warn" : "poor";
+
+  // Expanded detail: exact consumables first, then the itemized gear list.
+  const consLines = [];
+  if (cons.flask) consLines.push(`<span class="ok">🧪 ${esc(cons.flask)}</span>`);
+  else if (cons.elixirs.length) {
+    for (const e of cons.elixirs) consLines.push(`<span class="${cons.flaskReady ? "ok" : "warn"}">🧴 ${esc(e)}</span>`);
+    if (!cons.flaskReady) consLines.push(`<span class="bad">✗ missing ${cons.battle ? "guardian" : cons.guardian ? "battle" : "second"} elixir</span>`);
+  } else consLines.push(`<span class="bad">✗ no flask or elixirs</span>`);
+  consLines.push(cons.food ? `<span class="ok">🍖 Well Fed</span>` : `<span class="bad">✗ no food buff</span>`);
 
   const gear = p.gear.length
     ? `<div class="csi-gear">${p.gear.map(gearRow).join("")}</div>`
-    : `<p class="dim">No gear data for this pull.</p>`;
+    : `<p class="dim csi-gear">No gear data for this pull.</p>`;
 
   return `
-    <details class="csi-prep-player">
+    <details class="csi-prep-player csi-st-${status}">
       <summary>
-        <span class="csi-pname">${role} ${esc(p.name)}</span>
-        <span class="csi-pchips">${flaskChip}${foodChip}${enchChip}</span>
+        <span class="csi-pname" style="color:${nameColor}">${esc(p.name)}</span>
+        <span class="csi-pchips">${flaskPill}${foodPill}${enchPill}</span>
       </summary>
+      <div class="csi-cons-detail">${consLines.join("")}</div>
       ${gear}
     </details>`;
 }
 
 function gearRow(g) {
   const color = QUALITY_COLORS[g.quality] ?? "#fff";
+  const item = g.id
+    ? `<a class="csi-gname csi-wh" style="color:${color}" href="${WOWHEAD_ITEM}${Number(g.id)}" target="_blank" rel="noopener">${esc(g.name)}</a>`
+    : `<span class="csi-gname" style="color:${color}">${esc(g.name)}</span>`;
+  const enchSpell = g.enchantId ? ENCHANT_SPELLS[g.enchantId] : null;
   const ench = g.enchant
-    ? `<span class="ok">${esc(g.enchant)}</span>`
+    ? (enchSpell
+        ? `<a class="ok csi-wh" href="${WOWHEAD_SPELL}${Number(enchSpell)}" target="_blank" rel="noopener">${esc(g.enchant)}</a>`
+        : `<span class="ok">${esc(g.enchant)}</span>`)
     : g.enchantable
       ? `<span class="bad">✗ no enchant</span>`
       : `<span class="dim">—</span>`;
   return `<div class="csi-gear-row">
     <span class="dim">${esc(g.slotLabel)}</span>
-    <span class="csi-gname" style="color:${color}">${esc(g.name)}</span>
+    ${item}
     <span>${ench}</span>
   </div>`;
 }

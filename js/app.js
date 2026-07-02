@@ -1,6 +1,7 @@
 "use strict";
 import { CONFIG } from "./config.js";
 import { QUALITY_COLORS } from "./analyze.js";
+import { ENCHANT_SPELLS } from "./enchant-spells.js";
 import { getCoraidMap } from "./attendance.js";
 import { gearScoreColor } from "./gearscore.js";
 import { ROLE_ICONS, ROLE_LABEL, SPEC_ROLE } from "./wcl-classes.js";
@@ -233,8 +234,11 @@ function renderGear(gear) {
       ? `<img class="gicon" src="${ICON_BASE}${esc(g.icon)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
       : `<span class="gicon"></span>`;
     const color = QUALITY_COLORS[g.quality] ?? "#fff";
+    const enchSpell = g.enchantId ? ENCHANT_SPELLS[g.enchantId] : null;
     const ench = g.enchant
-      ? `<span class="gench" title="${esc(g.enchant)}">${esc(g.enchant)}</span>`
+      ? (enchSpell
+          ? `<a class="gench" href="https://www.wowhead.com/tbc/spell=${Number(enchSpell)}" target="_blank" rel="noopener" title="${esc(g.enchant)}">${esc(g.enchant)}</a>`
+          : `<span class="gench" title="${esc(g.enchant)}">${esc(g.enchant)}</span>`)
       : (g.enchantable ? `<span class="gench missing">no enchant</span>` : "<span></span>");
     const gems = g.gems.map((gem) => {
       const img = gem.icon

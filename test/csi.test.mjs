@@ -165,10 +165,32 @@ test("classifyConsumables: flask vs elixirs vs food, ignoring other buffs", () =
   assert.equal(c.flask, "Flask of Relentless Assault");
   assert.equal(c.food, true);
   assert.deepEqual(c.elixirs, ["Elixir of Draenic Wisdom"]);
+  assert.equal(c.flaskReady, true);
   const none = classifyConsumables([]);
   assert.equal(none.flask, null);
   assert.equal(none.food, false);
   assert.deepEqual(none.elixirs, []);
+  assert.equal(none.flaskReady, false);
+});
+
+test("classifyConsumables: battle + guardian elixir pair is flask-equivalent", () => {
+  const pair = classifyConsumables([
+    { name: "Adept's Elixir" },            // battle
+    { name: "Elixir of Major Fortitude" }, // guardian
+  ]);
+  assert.equal(pair.battle, "Adept's Elixir");
+  assert.equal(pair.guardian, "Elixir of Major Fortitude");
+  assert.equal(pair.flaskReady, true);
+
+  // one elixir is only half-prepped
+  const half = classifyConsumables([{ name: "Elixir of Major Agility" }]);
+  assert.equal(half.battle, "Elixir of Major Agility");
+  assert.equal(half.guardian, null);
+  assert.equal(half.flaskReady, false);
+
+  // two unknown-name elixirs still count (game caps one battle + one guardian)
+  const unknowns = classifyConsumables([{ name: "Elixir of Weird" }, { name: "Elixir of Odd" }]);
+  assert.equal(unknowns.flaskReady, true);
 });
 
 test("playerList: flattens roles with ids", () => {
@@ -182,9 +204,9 @@ test("playerList: flattens roles with ids", () => {
 
 test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering", () => {
   const pd = { data: { playerDetails: {
-    tanks: [{ id: 1, name: "Tankman", combatantInfo: { gear: gearWith(9) } }], // missing Hands
-    healers: [{ id: 2, name: "Noinfo" }], // no combatantInfo
-    dps: [{ id: 3, name: "Dpsguy", combatantInfo: { gear: gearWith(null) } }], // all enchanted
+    tanks: [{ id: 1, name: "Tankman", type: "Paladin", combatantInfo: { gear: gearWith(9) } }], // missing Hands
+    healers: [{ id: 2, name: "Noinfo", type: "Priest" }], // no combatantInfo
+    dps: [{ id: 3, name: "Dpsguy", type: "Rogue", combatantInfo: { gear: gearWith(null) } }], // all enchanted
   } } };
   const cons = {
     1: [{ name: "Flask of Fortification" }, { name: "Well Fed" }],
@@ -192,14 +214,16 @@ test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering"
   };
   const r = buildRaidPrep(pd, cons);
   assert.equal(r.raidSize, 3);
-  assert.equal(r.coverage.flask, 1);
-  assert.equal(r.coverage.elixir, 1);
+  assert.equal(r.coverage.flaskReady, 1); // only Tankman (Dpsguy has one elixir)
   assert.equal(r.coverage.food, 1);
   assert.equal(r.coverage.gearCovered, 2);
   assert.equal(r.coverage.enchanted, 1); // only Dpsguy is fully enchanted
+  assert.equal(r.coverage.fullyReady, 0); // everyone has at least one issue
 
   const tank = r.players.find((p) => p.name === "Tankman");
+  assert.equal(tank.class, "Paladin");
   assert.equal(tank.missingCount, 1);
+  assert.equal(tank.issues, 1); // enchant only; flask + food are covered
   assert.equal(tank.consumables.flask, "Flask of Fortification");
   // gear rows carry per-item enchant details for the UI
   const hands = tank.gear.find((g) => g.slotLabel === "Hands");
@@ -207,10 +231,13 @@ test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering"
   assert.equal(hands.enchantable, true);
   const head = tank.gear.find((g) => g.slotLabel === "Head");
   assert.ok(head.enchant); // enchanted item resolves to a name
+  assert.equal(head.enchantId, 1); // raw enchant id exposed for Wowhead links
+  assert.equal(hands.enchantId, null);
 
   const noinfo = r.players.find((p) => p.name === "Noinfo");
   assert.equal(noinfo.hasGear, false);
   assert.equal(noinfo.missingCount, null);
+  assert.equal(noinfo.issues, 2); // no flask, no food; unknown gear not counted
 
   // ordering: tank bucket first, dps last
   assert.equal(r.players[0].role, "tank");

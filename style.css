@@ -465,10 +465,16 @@ footer a { color: var(--accent); }
 .csi-tl li > :last-child { text-align: right; }
 
 /* raid prep (per-pull enchant + consumable check) */
-.csi-cov-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px; }
+.csi-cov-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 6px; }
 .csi-cov {
-  font-size: 13px; padding: 5px 11px; border-radius: 16px;
+  position: relative; overflow: hidden;
+  font-size: 13px; padding: 6px 12px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--panel-2);
+}
+/* subtle progress fill in the chip's status color */
+.csi-cov::before {
+  content: ""; position: absolute; inset: 0; width: var(--p, 0%);
+  background: currentColor; opacity: .13;
 }
 .csi-cov b { font-variant-numeric: tabular-nums; }
 .csi-ok { color: var(--good); }
@@ -476,10 +482,25 @@ footer a { color: var(--accent); }
 .csi-bad { color: var(--bad); }
 .csi-dim { color: var(--muted); }
 
-.csi-prep-list { display: flex; flex-direction: column; gap: 5px; }
+.csi-prep-list { display: flex; flex-direction: column; }
+.csi-prep-role h4 {
+  text-transform: uppercase; letter-spacing: 1px; font-size: 11px;
+  color: var(--muted); margin: 14px 0 6px;
+}
+.csi-role-count { font-weight: 400; margin-left: 4px; }
+.csi-role-count.ok { color: var(--good); }
+.csi-prep-role { display: flex; flex-direction: column; }
+.csi-prep-role .csi-prep-player { margin-bottom: 5px; }
 .csi-prep-player {
-  border: 1px solid var(--line); border-radius: 8px;
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 8px;
   background: var(--panel-2); overflow: hidden;
+}
+.csi-st-ready { border-left-color: var(--good); }
+.csi-st-warn { border-left-color: var(--accent); }
+.csi-st-poor { border-left-color: var(--bad); }
+.csi-cons-detail {
+  display: flex; flex-wrap: wrap; gap: 4px 18px;
+  padding: 10px 12px 0; font-size: 13px;
 }
 .csi-prep-player > summary {
   display: flex; align-items: center; justify-content: space-between;
@@ -507,3 +528,8 @@ footer a { color: var(--accent); }
 }
 .csi-gear-row:first-child { border-top: none; }
 .csi-gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* wowhead links keep their status/quality color; underline only on hover */
+.csi-wh { text-decoration: none; }
+.csi-wh:hover { text-decoration: underline; }
+a.gench { text-decoration: none; }
+a.gench:hover { text-decoration: underline; }

@@ -1,6 +1,7 @@
 "use strict";
 // Hand-authored demo report: two Gruul's Lair wipes. Lets the Wipe Autopsy tab
 // be tried without a live lookup. Event timestamps are ms from each fight start.
+import { buildRaidPrep } from "./prep.js";
 
 const actors = [
   { id: "gruul", name: "Gruul the Dragonkiller", type: "npc" },
@@ -24,66 +25,88 @@ const heal = (timestamp, sourceId, targetId, abilityName, amount, hp) => ({
 });
 const death = (timestamp, targetId, sourceId = "gruul") => ({ timestamp, type: "death", sourceId, targetId });
 
-// --- demo raid-prep (same shape as prep.js buildRaidPrep) -------------------
-// Gear rows carry only the fields the prep UI renders.
-const gi = (slotLabel, name, quality, enchant, enchantable = true) =>
-  ({ slotLabel, name, quality, enchant, enchantable });
+// --- demo raid-prep ---------------------------------------------------------
+// Built through the REAL buildRaidPrep pipeline from fake WCL-shaped inputs,
+// so the demo can never drift from the live shape. Raw gear items use WCL
+// field names; our enchant-name DB won't know the fake enchant ids, so the
+// permanentEnchantName fallback supplies the display name.
 
-const TANK_GEAR = [
-  gi("Head", "Justicar Faceguard", 4, "Glyph of the Defender"),
-  gi("Shoulder", "Justicar Shoulderguards", 4, "Greater Inscription of Warding"),
-  gi("Back", "Devilshark Cape", 4, "Enchant Cloak - Dodge"),
-  gi("Chest", "Justicar Chestguard", 4, "Enchant Chest - Exceptional Health"),
-  gi("Wrist", "Bracers of the Green Fortress", 4, "Enchant Bracer - Major Defense"),
-  gi("Hands", "Justicar Handguards", 4, "Enchant Gloves - Major Agility"),
-  gi("Legs", "Unwavering Legguards", 4, "Nethercobra Leg Armor"),
-  gi("Feet", "Boots of Elusion", 4, "Enchant Boots - Fortitude"),
-  gi("Main Hand", "The Sun Eater", 4, "Enchant Weapon - Mongoose"),
-  gi("Off Hand", "Aldori Legacy Defender", 4, "Enchant Shield - Major Stamina"),
-  gi("Trinket", "Moroes' Lucky Pocket Watch", 4, null, false),
-];
-const ROGUE_GEAR = [
-  gi("Head", "Netherblade Facemask", 4, "Glyph of Ferocity"),
-  gi("Shoulder", "Netherblade Shoulderpads", 4, "Greater Inscription of Vengeance"),
-  gi("Back", "Drape of the Dark Reavers", 4, "Enchant Cloak - Greater Agility"),
-  gi("Chest", "Netherblade Chestpiece", 4, "Enchant Chest - Exceptional Stats"),
-  gi("Wrist", "Nightfall Wristguards", 4, "Enchant Bracer - Brawn"),
-  gi("Hands", "Netherblade Gloves", 4, null),
-  gi("Legs", "Skulker's Greaves", 4, "Nethercobra Leg Armor"),
-  gi("Feet", "Edgewalker Longboots", 4, null),
-  gi("Main Hand", "Latro's Shifting Sword", 4, "Enchant Weapon - Mongoose"),
-  gi("Off Hand", "The Night Blade", 4, "Enchant Weapon - Executioner"),
-  gi("Trinket", "Bloodlust Brooch", 4, null, false),
-];
-const SHORT_GEAR = (missingSlot = null) => [
-  gi("Head", "Light-Collar of the Incarnate", 4, "Glyph of Renewal"),
-  gi("Back", "Shawl of Shifting Probabilities", 4, missingSlot === "Back" ? null : "Enchant Cloak - Subtlety"),
-  gi("Chest", "Robes of the Incarnate", 4, "Enchant Chest - Restore Mana Prime"),
-  gi("Main Hand", "Light's Justice", 4, "Enchant Weapon - Major Healing"),
-];
-
-const P = (id, name, role, gear, missingCount, flask, elixirs, food) => ({
-  id, name, role, hasGear: gear.length > 0, missingCount, gear,
-  consumables: { flask, elixirs, food },
+// slot numbers: 0 Head, 2 Shoulder, 4 Chest, 6 Legs, 7 Feet, 8 Wrist, 9 Hands,
+// 12 Trinket, 14 Back, 15 Main Hand, 16 Off Hand.
+// Ids are deliberately out-of-range sentinels: demo Wowhead links land on a
+// clean "not found" instead of some unrelated real item, and the fake enchant
+// id has no spell mapping so demo enchants render unlinked.
+const gi = (slot, name, ench) => ({
+  slot, id: 9990000 + slot, name, quality: 4, itemLevel: 120,
+  permanentEnchant: ench ? 999999 : 0, permanentEnchantName: ench || undefined,
 });
 
-function demoPrep() {
-  return {
-    raidSize: 9,
-    coverage: { flask: 3, elixir: 3, food: 7, enchanted: 6, gearCovered: 9 },
-    players: [
-      P(1, "Sahmeran", "tank", TANK_GEAR, 0, "Flask of Fortification", [], true),
-      P(2, "Thornblade", "tank", SHORT_GEAR(), 0, null, ["Elixir of Major Fortitude", "Elixir of Mastery"], true),
-      P(3, "Shockheal", "healer", SHORT_GEAR("Back"), 1, null, [], true),
-      P(4, "Lightwell", "healer", SHORT_GEAR(), 0, "Flask of Mighty Restoration", [], true),
-      P(5, "Naturae", "healer", SHORT_GEAR(), 0, null, ["Elixir of Draenic Wisdom"], false),
-      P(6, "Backstabz", "dps", ROGUE_GEAR, 2, null, [], false),
-      P(7, "Huntex", "dps", SHORT_GEAR("Back"), 1, null, [], true),
-      P(8, "Frostmage", "dps", SHORT_GEAR(), 0, "Flask of Supreme Power", [], true),
-      P(9, "Shadowlock", "dps", SHORT_GEAR(), 0, null, ["Adept's Elixir", "Elixir of Major Shadow Power"], true),
-    ],
-  };
-}
+const TANK_GEAR = [
+  gi(0, "Justicar Faceguard", "Glyph of the Defender"),
+  gi(2, "Justicar Shoulderguards", "Greater Inscription of Warding"),
+  gi(14, "Devilshark Cape", "+12 Dodge Rating"),
+  gi(4, "Justicar Chestguard", "+150 Health"),
+  gi(8, "Bracers of the Green Fortress", "+12 Defense Rating"),
+  gi(9, "Justicar Handguards", "+15 Agility"),
+  gi(6, "Unwavering Legguards", "Nethercobra Leg Armor"),
+  gi(7, "Boots of Elusion", "+12 Stamina"),
+  gi(15, "The Sun Eater", "Mongoose"),
+  gi(16, "Aldori Legacy Defender", "+18 Stamina"),
+  gi(12, "Moroes' Lucky Pocket Watch", null),
+];
+const ROGUE_GEAR = [
+  gi(0, "Netherblade Facemask", "Glyph of Ferocity"),
+  gi(2, "Netherblade Shoulderpads", "Greater Inscription of Vengeance"),
+  gi(14, "Drape of the Dark Reavers", "+12 Agility"),
+  gi(4, "Netherblade Chestpiece", "+6 All Stats"),
+  gi(8, "Nightfall Wristguards", "+12 Strength"),
+  gi(9, "Netherblade Gloves", null),
+  gi(6, "Skulker's Greaves", "Nethercobra Leg Armor"),
+  gi(7, "Edgewalker Longboots", null),
+  gi(15, "Latro's Shifting Sword", "Mongoose"),
+  gi(16, "The Night Blade", "Executioner"),
+  gi(12, "Bloodlust Brooch", null),
+];
+const SHORT_GEAR = (missBack = false) => [
+  gi(0, "Light-Collar of the Incarnate", "Glyph of Renewal"),
+  gi(14, "Shawl of Shifting Probabilities", missBack ? null : "+12 Spell Penetration"),
+  gi(4, "Robes of the Incarnate", "+15 Spirit"),
+  gi(15, "Light's Justice", "+81 Healing Spells"),
+];
+
+const DP = (id, name, type, gear) => ({ id, name, type, combatantInfo: { gear } });
+const demoPlayerDetails = { data: { playerDetails: {
+  tanks: [
+    DP(1, "Sahmeran", "Paladin", TANK_GEAR),
+    DP(2, "Thornblade", "Warrior", SHORT_GEAR()),
+  ],
+  healers: [
+    DP(3, "Shockheal", "Shaman", SHORT_GEAR(true)),
+    DP(4, "Lightwell", "Priest", SHORT_GEAR()),
+    DP(5, "Naturae", "Druid", SHORT_GEAR()),
+  ],
+  dps: [
+    DP(6, "Backstabz", "Rogue", ROGUE_GEAR),
+    DP(7, "Huntex", "Hunter", SHORT_GEAR(true)),
+    DP(8, "Frostmage", "Mage", SHORT_GEAR()),
+    DP(9, "Shadowlock", "Warlock", SHORT_GEAR()),
+  ],
+} } };
+
+const B = (...names) => names.map((name) => ({ name }));
+const demoConsumables = {
+  1: B("Flask of Fortification", "Well Fed"),
+  2: B("Elixir of Major Fortitude", "Elixir of Mastery", "Well Fed"), // pair = flask-equivalent
+  3: B("Well Fed"),
+  4: B("Flask of Mighty Restoration", "Well Fed"),
+  5: B("Elixir of Draenic Wisdom"), // guardian only, no food
+  6: [],                            // nothing at all
+  7: B("Well Fed"),
+  8: B("Flask of Supreme Power", "Well Fed"),
+  9: B("Elixir of Major Shadow Power", "Elixir of Major Fortitude", "Well Fed"),
+};
+
+const demoPrep = () => buildRaidPrep(demoPlayerDetails, demoConsumables);
 
 const fight1 = {
   id: "gruul-1",
