@@ -30,6 +30,14 @@ function includeForFindings(rule, role) {
   return false;
 }
 
+// Friendly-SOURCED damage (a warlock's own Hellfire, a mage's Arcane Explosion)
+// must never match a boss-mechanic name. The exception is chain/spacing
+// mechanics (Shatter, Static Charge, Netherbeam...), whose damage propagates
+// FROM other players by design. Events without the flag (demo data) pass.
+function sourceAllowed(e, rule) {
+  return e.sourceFriendly !== true || rule.category === "chain";
+}
+
 /**
  * Set event.avoidable = true on damage events that match an avoidable/chain
  * mechanic (or a frontal hit on a non-tank). Idempotent; never clears a flag,
@@ -39,7 +47,7 @@ export function applyMechanicRules(fight, idx) {
   for (const e of fight.events) {
     if (e.type !== "damage" || e.avoidable) continue;
     const rule = lookupRule(e.abilityName);
-    if (!rule) continue;
+    if (!rule || !sourceAllowed(e, rule)) continue;
     const role = e.targetId ? idx.get(e.targetId)?.role : undefined;
     if (isAvoidableHit(rule, role)) e.avoidable = true;
   }
@@ -56,7 +64,7 @@ export function mechanicFindings(fight, idx) {
   for (const e of fight.events) {
     if (e.type !== "damage") continue;
     const rule = lookupRule(e.abilityName);
-    if (!rule) continue;
+    if (!rule || !sourceAllowed(e, rule)) continue;
     const role = e.targetId ? idx.get(e.targetId)?.role : undefined;
     if (!includeForFindings(rule, role)) continue;
 
@@ -91,7 +99,7 @@ export function mechanicFindings(fight, idx) {
       if (e.type !== "damage" || e.targetId !== d.targetId) continue;
       if (e.timestamp < windowStart || e.timestamp > d.timestamp) continue;
       const rule = lookupRule(e.abilityName);
-      if (!includeForFindings(rule, role)) continue;
+      if (!rule || !sourceAllowed(e, rule) || !includeForFindings(rule, role)) continue;
       byAbility.get(e.abilityName)?.deaths.add(d.targetId);
     }
   }

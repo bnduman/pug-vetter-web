@@ -4,16 +4,22 @@
 
 export const RECAP_WINDOW_MS = 20_000;
 
-// Self-cast survival cooldowns we expect a player (esp. a tank) to use.
-const DEFENSIVE_ABILITIES = [
+// EMERGENCY survival cooldowns (self-cast or external). Deliberately excludes
+// rotational mitigation like Holy Shield — a prot paladin has that up almost
+// permanently, so counting it would make "died despite a defensive" (and
+// suppress "unmitigated spike") on virtually every paladin death.
+const EMERGENCY_DEFENSIVES = [
   "Shield Wall",
   "Last Stand",
   "Divine Protection",
   "Divine Shield",
-  "Holy Shield",
   "Ardent Defender",
   "Power Word: Shield",
   "Pain Suppression",
+  "Ice Block",
+  "Barkskin",
+  "Frenzied Regeneration",
+  "Lay on Hands",
 ];
 
 const HEALTHSTONE = /healthstone/i;
@@ -57,7 +63,7 @@ function analyzeDeath(death, fight, idx) {
   let lastHealAt;
   let lastDamage;
   let lastDamageAt; // timestamp of the killing-blow candidate
-  let defensiveUsed = false; // a tracked defensive cooldown used within the window
+  const defensives = []; // emergency cooldowns in the window: {ms, ability, source?}
 
   for (const e of fight.events) {
     if (!inWindow(e)) continue;
@@ -66,10 +72,12 @@ function analyzeDeath(death, fight, idx) {
 
     if (
       (e.sourceId === victimId || e.targetId === victimId) &&
-      DEFENSIVE_ABILITIES.includes(name)
+      EMERGENCY_DEFENSIVES.includes(name)
     ) {
-      defensiveUsed = true;
-      timeline.push({ ms, kind: "cooldown", ability: name });
+      // Attribute externals (a priest's PW:S / Pain Suppression) to the caster.
+      const source = e.sourceId && e.sourceId !== victimId ? idx.get(e.sourceId)?.name : undefined;
+      defensives.push({ ms, ability: name, source });
+      timeline.push({ ms, kind: "cooldown", ability: name, source });
     }
 
     if (e.targetId !== victimId) continue;
@@ -122,8 +130,8 @@ function analyzeDeath(death, fight, idx) {
     notes.push(`Took avoidable damage (${avoidable.map((d) => d.abilityName).join(", ")}) before dying.`);
   }
   if (!usedHealthstone) notes.push("No Healthstone used all fight.");
-  if (victim.role === "tank" && !defensiveUsed) {
-    notes.push(`No major defensive cooldown used in the final ${RECAP_WINDOW_MS / 1000}s.`);
+  if (victim.role === "tank" && !defensives.length) {
+    notes.push(`No emergency defensive cooldown used in the final ${RECAP_WINDOW_MS / 1000}s.`);
   }
 
   return {
@@ -141,7 +149,8 @@ function analyzeDeath(death, fight, idx) {
     lastHealMsBeforeDeath,
     usedHealthstone,
     usedHealingPotion,
-    defensiveUsed,
+    defensiveUsed: defensives.length > 0,
+    defensives,
     notes,
   };
 }

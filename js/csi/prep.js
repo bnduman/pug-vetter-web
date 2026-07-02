@@ -30,7 +30,7 @@ const BATTLE_ELIXIRS = new Set([
   "elixir of major agility", "elixir of major strength", "elixir of the mongoose",
   "elixir of major firepower", "elixir of major frost power", "elixir of major shadow power",
   "elixir of healing power", "elixir of demonslaying", "elixir of mastery",
-  "fel strength elixir", "onslaught elixir",
+  "fel strength elixir", "onslaught elixir", "elixir of empowerment",
 ]);
 const GUARDIAN_ELIXIRS = new Set([
   "elixir of major fortitude", "elixir of major defense", "elixir of major mageblood",
@@ -38,17 +38,26 @@ const GUARDIAN_ELIXIRS = new Set([
   "elixir of superior defense", "elixir of fortitude", "elixir of greater defense",
 ]);
 
-/** Classify a player's buff auras into the consumables that matter for prep. */
+/** Classify a player's buff auras into the consumables that matter for prep.
+ *  `auras` null/undefined means the data COULDN'T be fetched -> unknown, which
+ *  is rendered as "no data", never as "unprepped". An empty array is a real
+ *  answer: the player genuinely had nothing. */
 export function classifyConsumables(auras) {
+  if (auras == null) {
+    return { unknown: true, flask: null, elixirs: [], battle: null, guardian: null, food: false, drums: false, flaskReady: false };
+  }
   let flask = null;
   const elixirs = [];
   let battle = null;
   let guardian = null;
   let food = false;
-  for (const a of auras ?? []) {
+  let drums = false;
+  for (const a of auras) {
     const n = a.name ?? "";
-    if (/^flask of/i.test(n)) flask = n;
+    // unanchored: catches "Flask of ..." AND the Bash'ir "Unstable Flask of ..."
+    if (/flask of/i.test(n)) flask = n;
     else if (/well fed/i.test(n)) food = true;
+    else if (/^drums of battle/i.test(n)) drums = true;
     else if (/elixir/i.test(n)) {
       elixirs.push(n);
       const key = n.toLowerCase();
@@ -60,7 +69,7 @@ export function classifyConsumables(auras) {
   // are always such a pair (the game caps one of each), so 2+ counts even when
   // a name isn't in our lists.
   const flaskReady = !!flask || (!!battle && !!guardian) || elixirs.length >= 2;
-  return { flask, elixirs, battle, guardian, food, flaskReady };
+  return { unknown: false, flask, elixirs, battle, guardian, food, drums, flaskReady };
 }
 
 /**
@@ -79,10 +88,9 @@ export function buildRaidPrep(playerDetails, consumablesById = {}) {
       const consumables = classifyConsumables(consumablesById[p.id]);
       const missingCount = en ? en.missing_required : null;
       // Readiness issues: not flask-ready, no food, missing enchants.
-      // Unknown gear (no combat info) is not counted as an issue.
+      // Unknown data (no combat info / failed buff query) is never an issue.
       const issues =
-        (consumables.flaskReady ? 0 : 1) +
-        (consumables.food ? 0 : 1) +
+        (consumables.unknown ? 0 : (consumables.flaskReady ? 0 : 1) + (consumables.food ? 0 : 1)) +
         (missingCount ? 1 : 0);
       players.push({
         id: p.id,
@@ -100,9 +108,12 @@ export function buildRaidPrep(playerDetails, consumablesById = {}) {
 
   const total = players.length;
   const withGear = players.filter((p) => p.hasGear);
+  const withCons = players.filter((p) => !p.consumables.unknown);
   const coverage = {
-    flaskReady: players.filter((p) => p.consumables.flaskReady).length,
-    food: players.filter((p) => p.consumables.food).length,
+    flaskReady: withCons.filter((p) => p.consumables.flaskReady).length,
+    food: withCons.filter((p) => p.consumables.food).length,
+    drums: withCons.filter((p) => p.consumables.drums).length,
+    consumablesCovered: withCons.length,
     enchanted: withGear.filter((p) => p.missingCount === 0).length,
     gearCovered: withGear.length,
     fullyReady: players.filter((p) => p.issues === 0).length,

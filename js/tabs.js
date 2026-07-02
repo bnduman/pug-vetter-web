@@ -16,4 +16,17 @@ function activate(name) {
 }
 
 for (const t of tabs) t.addEventListener("click", () => activate(t.dataset.tab));
+
+// ARIA tablist pattern: Left/Right arrows move between (and activate) tabs.
+document.getElementById("tabs").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const list = [...tabs];
+  const i = list.indexOf(document.activeElement);
+  if (i === -1) return;
+  e.preventDefault();
+  const next = list[(i + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length];
+  next.focus();
+  activate(next.dataset.tab);
+});
+
 activate("vetter");

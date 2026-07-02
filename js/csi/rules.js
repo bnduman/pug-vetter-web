@@ -67,7 +67,8 @@ const RULES = {
   "melt armor": { encounter: "Al'ar", category: "tank", severity: "info", advice: "Tank swap promptly after the 80% armor reduction." },
   "arcane orb": { encounter: "Void Reaver", category: "avoidable", severity: "high", advice: "Move away from the orb's destination before impact." },
   "pounding": { encounter: "Void Reaver", category: "raidwide", severity: "info", advice: "Expected melee-range damage; healing/defensive context." },
-  "wrath of the astromancer": { encounter: "Solarian", category: "avoidable", severity: "critical", advice: "Move to the assigned drop point before the bomb expires." },
+  // chain: the explosion propagates FROM the debuffed player (friendly source)
+  "wrath of the astromancer": { encounter: "Solarian", category: "chain", severity: "critical", advice: "Move to the assigned drop point before the bomb expires." },
   "blinding light": { encounter: "Solarian", category: "raidwide", severity: "info", advice: "Expected raid damage; healing context." },
   "flamestrike": { encounter: "Kael'thas", category: "avoidable", severity: "high", advice: "Move out of the Flamestrike ground effect." },
   "nether vapor": { encounter: "Kael'thas", category: "avoidable", severity: "high", advice: "Avoid the Nether Vapor clouds during Gravity Lapse." },

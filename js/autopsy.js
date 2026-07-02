@@ -33,7 +33,7 @@ function msg(e) {
 
 // --- screens ---------------------------------------------------------------
 
-function home(error) {
+function home(error, urlValue) {
   report = null;
   reportCode = null;
   root.innerHTML = `
@@ -42,7 +42,7 @@ function home(error) {
       <p class="sub">Paste a Warcraft Logs report — CSI reconstructs each death, names the
         likely cause, and hands you a Discord-ready &ldquo;fix next pull&rdquo; checklist.</p>
       <div class="csi-row">
-        <input id="csi-url" aria-label="Warcraft Logs report URL" placeholder="https://classic.warcraftlogs.com/reports/ABC123#fight=5" />
+        <input id="csi-url" aria-label="Warcraft Logs report URL" value="${esc(urlValue ?? "")}" placeholder="https://classic.warcraftlogs.com/reports/ABC123#fight=5" />
         <button id="csi-analyze" type="button">Analyze</button>
       </div>
       <p class="csi-hint">Paste a whole report to see every pull, or add <code>#fight=5</code> to jump to one.</p>
@@ -182,9 +182,11 @@ function prepCard(prep) {
     const cls = total && have >= total ? "csi-ok" : pct >= 70 ? "csi-mid" : "csi-bad";
     return `<span class="csi-cov ${cls}" style="--p:${pct}%"${title ? ` title="${esc(title)}"` : ""}>${emoji} ${label} <b>${have}/${total || 0}</b></span>`;
   };
+  const cc = c.consumablesCovered ?? n;
   const coverage = `<div class="csi-cov-row">
-    ${cov("🧪", "Flask-ready", c.flaskReady, n, "A flask, or a battle + guardian elixir pair (equivalent)")}
-    ${cov("🍖", "Well Fed", c.food, n)}
+    ${cov("🧪", "Flask-ready", c.flaskReady, cc, "A flask, or a battle + guardian elixir pair (equivalent)")}
+    ${cov("🍖", "Well Fed", c.food, cc)}
+    ${c.drums ? cov("🥁", "Drums", c.drums, cc, "Drums of Battle coverage") : ""}
     ${cov("✨", "Enchanted", c.enchanted, c.gearCovered, "Fully enchanted, of players with gear data")}
   </div>`;
 
@@ -214,19 +216,26 @@ function prepRow(p) {
   const cons = p.consumables;
   const nameColor = CLASS_COLORS[p.class] ?? "var(--text)";
 
-  // Flask pill: flask and a battle+guardian pair are equally green.
+  // Flask pill: flask and a battle+guardian pair are equally green. Unknown
+  // (failed buff query) is dim "no data" — never blamed as unprepped.
   let flaskPill;
-  if (cons.flask) {
-    flaskPill = pill("ok", "🧪 Flask", cons.flask);
-  } else if (cons.flaskReady) {
-    flaskPill = pill("ok", "🧴 Elixir pair", cons.elixirs.join(" + "));
-  } else if (cons.elixirs.length === 1) {
-    const missingHalf = cons.battle ? "guardian" : cons.guardian ? "battle" : "second";
-    flaskPill = pill("mid", `🧴 no ${missingHalf}`, `${cons.elixirs[0]} — add a ${missingHalf} elixir (or flask)`);
+  let foodPill;
+  if (cons.unknown) {
+    flaskPill = pill("dim", "🧪 no data", "Consumable data couldn't be fetched for this player");
+    foodPill = pill("dim", "🍖 no data");
   } else {
-    flaskPill = pill("bad", "🧪 none", "No flask or elixirs");
+    if (cons.flask) {
+      flaskPill = pill("ok", "🧪 Flask", cons.flask);
+    } else if (cons.flaskReady) {
+      flaskPill = pill("ok", "🧴 Elixir pair", cons.elixirs.join(" + "));
+    } else if (cons.elixirs.length === 1) {
+      const missingHalf = cons.battle ? "guardian" : cons.guardian ? "battle" : "second";
+      flaskPill = pill("mid", `🧴 no ${missingHalf}`, `${cons.elixirs[0]} — add a ${missingHalf} elixir (or flask)`);
+    } else {
+      flaskPill = pill("bad", "🧪 none", "No flask or elixirs");
+    }
+    foodPill = cons.food ? pill("ok", "🍖 Fed") : pill("bad", "🍖 no food");
   }
-  const foodPill = cons.food ? pill("ok", "🍖 Fed") : pill("bad", "🍖 no food");
 
   const missingSlots = p.gear.filter((g) => g.enchantable && !g.enchant).map((g) => g.slotLabel);
   const enchPill = !p.hasGear
@@ -239,12 +248,17 @@ function prepRow(p) {
 
   // Expanded detail: exact consumables first, then the itemized gear list.
   const consLines = [];
-  if (cons.flask) consLines.push(`<span class="ok">🧪 ${esc(cons.flask)}</span>`);
-  else if (cons.elixirs.length) {
-    for (const e of cons.elixirs) consLines.push(`<span class="${cons.flaskReady ? "ok" : "warn"}">🧴 ${esc(e)}</span>`);
-    if (!cons.flaskReady) consLines.push(`<span class="bad">✗ missing ${cons.battle ? "guardian" : cons.guardian ? "battle" : "second"} elixir</span>`);
-  } else consLines.push(`<span class="bad">✗ no flask or elixirs</span>`);
-  consLines.push(cons.food ? `<span class="ok">🍖 Well Fed</span>` : `<span class="bad">✗ no food buff</span>`);
+  if (cons.unknown) {
+    consLines.push(`<span class="dim">Consumable data unavailable for this pull.</span>`);
+  } else {
+    if (cons.flask) consLines.push(`<span class="ok">🧪 ${esc(cons.flask)}</span>`);
+    else if (cons.elixirs.length) {
+      for (const e of cons.elixirs) consLines.push(`<span class="${cons.flaskReady ? "ok" : "warn"}">🧴 ${esc(e)}</span>`);
+      if (!cons.flaskReady) consLines.push(`<span class="bad">✗ missing ${cons.battle ? "guardian" : cons.guardian ? "battle" : "second"} elixir</span>`);
+    } else consLines.push(`<span class="bad">✗ no flask or elixirs</span>`);
+    consLines.push(cons.food ? `<span class="ok">🍖 Well Fed</span>` : `<span class="bad">✗ no food buff</span>`);
+    if (cons.drums) consLines.push(`<span class="ok">🥁 Drums of Battle</span>`);
+  }
 
   const gear = p.gear.length
     ? `<div class="csi-gear">${p.gear.map(gearRow).join("")}</div>`
@@ -335,7 +349,8 @@ function timelineRow(ev) {
     return `<li><span class="mono dim">${t}</span><span class="ok">＋ ${esc(ev.ability)}${from}</span><span class="mono ok">+${num(ev.amount)}</span>${hp}</li>`;
   }
   if (ev.kind === "cooldown") {
-    return `<li><span class="mono dim">${t}</span><span class="link">🛡 ${esc(ev.ability)} used</span><span class="dim mono">—</span><span></span></li>`;
+    const from = ev.source ? ` <span class="dim">from ${esc(ev.source)}</span>` : "";
+    return `<li><span class="mono dim">${t}</span><span class="link">🛡 ${esc(ev.ability)}${from}</span><span class="dim mono">used</span><span></span></li>`;
   }
   const mark = ev.avoidable ? "⚠" : "✶";
   const cls = ev.avoidable ? "warn" : "";
@@ -351,7 +366,7 @@ function sevBadge(sev) {
 async function analyze(input) {
   const parsed = parseReportUrl(input);
   if (!parsed) {
-    home("That doesn't look like a Warcraft Logs report URL or code.");
+    home("That doesn't look like a Warcraft Logs report URL or code.", input);
     return;
   }
   loading("Investigating the logs…");
@@ -368,7 +383,7 @@ async function analyze(input) {
     }
     overview();
   } catch (e) {
-    home(msg(e));
+    home(msg(e), input);
   }
 }
 

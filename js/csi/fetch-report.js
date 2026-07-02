@@ -87,10 +87,12 @@ async function mapLimit(items, limit, fn) {
 }
 
 // Per-player consumables: one Buffs query per player, concurrency-limited.
+// A failed query yields null ("unknown"), NOT [] — an empty array claims the
+// player genuinely had nothing, which we can't assert after an error.
 async function fetchConsumables(code, fightId, start, end, players) {
   const ids = players.map((p) => p.id).filter((id) => id != null);
   const aurasByIndex = await mapLimit(ids, BUFF_CONCURRENCY, (id) =>
-    fetchPlayerBuffs(code, fightId, start, end, id).catch(() => []),
+    fetchPlayerBuffs(code, fightId, start, end, id).catch(() => null),
   );
   const byId = {};
   ids.forEach((id, i) => { byId[id] = aurasByIndex[i]; });

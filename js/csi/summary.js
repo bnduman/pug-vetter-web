@@ -72,8 +72,10 @@ export function summarizeFight(fight, idx) {
       return { text: "Tank died during an unmitigated damage spike.", severity: "critical", evidence: d.notes };
     }
     checklist.push("Review tank healing coverage — a defensive was already used, so this is a healing gap or raw burst, not a missed cooldown.");
+    const defNames = [...new Set((d.defensives ?? []).map((x) =>
+      x.source ? `${x.ability} from ${x.source}` : x.ability))].join(", ");
     return {
-      text: `Tank ${d.victim.name} died${d.killingBlow ? ` to ${d.killingBlow.abilityName}` : ""} despite using a defensive.`,
+      text: `Tank ${d.victim.name} died${d.killingBlow ? ` to ${d.killingBlow.abilityName}` : ""} despite ${defNames || "an active defensive"}.`,
       severity: "critical",
       evidence: d.notes,
     };

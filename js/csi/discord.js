@@ -47,6 +47,13 @@ export function toDiscordMarkdown(fight, summary) {
     }
   }
 
+  const c = fight.prep?.coverage;
+  if (c) {
+    const cc = c.consumablesCovered ?? fight.prep.raidSize;
+    lines.push("");
+    lines.push(`**Raid prep:** 🧪 ${c.flaskReady}/${cc} flask-ready · 🍖 ${c.food}/${cc} fed · ✨ ${c.enchanted}/${c.gearCovered} enchanted (${c.fullyReady}/${fight.prep.raidSize} fully ready)`);
+  }
+
   if (summary.nextPullChecklist.length) {
     lines.push("");
     lines.push("**Fix next pull:**");

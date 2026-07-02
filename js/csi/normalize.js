@@ -74,6 +74,9 @@ export function normalizeEvent(ev, fightStart, abilities) {
   const out = { timestamp: Math.round(ev.timestamp ?? 0) - fightStart, type: etype };
   if (ev.sourceID != null) out.sourceId = String(ev.sourceID);
   if (ev.targetID != null) out.targetId = String(ev.targetID);
+  // Whether the damage came from a friendly unit (e.g. a warlock's own
+  // Hellfire) — mechanic rules must not blame boss abilities for these.
+  if (ev.sourceIsFriendly != null) out.sourceFriendly = ev.sourceIsFriendly;
   if (ev.abilityGameID != null) {
     out.abilityId = ev.abilityGameID;
     const name = abilities.get(ev.abilityGameID);
