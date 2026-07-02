@@ -13,8 +13,11 @@ import { getRaidZones } from "./zones.js";
 
 // How many recent reports to scan when hunting for a second role's gear.
 // Only multi-role players scan past the first report, and they stop as soon as
-// the second role is found — so this is a worst-case bound, not a per-lookup cost.
-const MULTISPEC_SCAN_REPORTS = 15;
+// the second role is found. Capped at 8: measured live, players whose first
+// several reports all show one role almost never yield a second set later.
+const MULTISPEC_SCAN_REPORTS = 8;
+// Gear queries per concurrent batch during the multi-role scan.
+const GEAR_CONCURRENCY = 5;
 
 function slugifyRealm(realm) {
   return (realm ?? "").trim().toLowerCase().replace(/'/g, "")
@@ -75,33 +78,51 @@ async function gearSetFromReport(rep, charName, className) {
 // cost one query; only genuinely multi-role characters scan further. Grouping
 // by role (not spec) avoids splitting a player when WCL mislabels their spec
 // with a tier-set name across reports.
+//
+// The scan runs in concurrent batches (measured: sequential scanning was the
+// bulk of a slow lookup) and stops as soon as a second role turns up. Batch
+// results are processed in report order, so the NEWEST gear per role wins.
 async function buildGearSets(reports, charName, className, multi) {
   const sets = [];
   const seenRoles = new Set();
-  const limit = multi ? Math.min(reports.length, MULTISPEC_SCAN_REPORTS) : 1;
-  for (let i = 0; i < limit; i++) {
-    let set;
-    try {
-      set = await gearSetFromReport(reports[i], charName, className);
-    } catch (e) {
-      if (e instanceof WCLError) throw e; // surface rate-limit/auth/network failures
-      continue; // otherwise skip a single malformed report
+  const slice = reports.slice(0, multi ? MULTISPEC_SCAN_REPORTS : 1);
+  let wclError = null;
+
+  for (let i = 0; i < slice.length && sets.length < 2; i += GEAR_CONCURRENCY) {
+    const batch = slice.slice(i, i + GEAR_CONCURRENCY);
+    const results = await Promise.all(batch.map((rep) =>
+      gearSetFromReport(rep, charName, className).catch((e) => {
+        if (e instanceof WCLError) wclError = wclError ?? e;
+        return null; // a single bad report never sinks the batch
+      }),
+    ));
+    for (const set of results) {
+      if (!set) continue;
+      const roleKey = set.role ?? "?";
+      if (seenRoles.has(roleKey)) continue; // keep the newest gear per role
+      seenRoles.add(roleKey);
+      sets.push(set);
+      if (sets.length >= 2) break; // tank + dps is plenty
     }
-    if (!set) continue;
-    const roleKey = set.role ?? `set${i}`;
-    if (seenRoles.has(roleKey)) continue; // keep the newest gear per role
-    seenRoles.add(roleKey);
-    sets.push(set);
-    if (sets.length >= 2) break; // tank + dps is plenty
   }
+
+  // Surface rate-limit/auth/network failures — but only when they cost us
+  // everything; a partial result is still worth showing.
+  if (!sets.length && wclError) throw wclError;
   return sets;
 }
 
-export async function vet(name) {
+/**
+ * Look up a character. Two-phase for perceived speed: the scorecard (raids,
+ * parses, class) is ready after ONE query and is handed to `onScorecard` with
+ * `gearPending: true`; the gear/enchant scan then completes and the full
+ * result is returned (and cached). Cache hits skip the callback entirely.
+ */
+export async function vet(name, { onScorecard } = {}) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  // "vet5" — cache key versioned; bump when the result shape/values change.
-  const key = `vet5/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet6" — cache key versioned; bump when the result shape/values change.
+  const key = `vet6/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 
@@ -129,6 +150,29 @@ export async function vet(name) {
   const recent = char.recentReports?.data ?? [];
   const lastLog = recent[0]?.startTime ?? null;
 
+  // Phase 1: everything except gear — render immediately.
+  const partial = {
+    found: true,
+    name: char.name ?? name,
+    realm,
+    region,
+    class: className,
+    classColor: CLASS_COLORS[className] ?? "#e8e9ee",
+    classID: char.classID ?? null,
+    spec: primarySpec(zrList),
+    specs: [],
+    role: null,
+    raids,
+    gearSets: [],
+    gearError: null,
+    gearPending: true,
+    enchants: null,
+    gearscore: null,
+    last_log: lastLog,
+  };
+  onScorecard?.(partial);
+
+  // Phase 2: gear sets (the slow part — concurrent report scans).
   let gearSets = [];
   let gearError = null;
   if (recent.length) {
@@ -146,22 +190,15 @@ export async function vet(name) {
   const maxGs = gearSets.reduce((m, s) => Math.max(m, s.gearscore ?? 0), 0) || null;
 
   const result = {
-    found: true,
-    name: char.name ?? name,
-    realm,
-    region,
-    class: className,
-    classColor: CLASS_COLORS[className] ?? "#e8e9ee",
-    classID: char.classID ?? null,
-    spec: specs[0] ?? primarySpec(zrList),
+    ...partial,
+    gearPending: false,
+    spec: specs[0] ?? partial.spec,
     specs,
     role: primary?.role ?? null,
-    raids,
     gearSets,
     gearError, // non-null when gear couldn't be fetched (vs genuinely absent)
     enchants: primary?.enchants ?? null, // primary set, for the roster card
     gearscore: maxGs,
-    last_log: lastLog,
   };
   cacheSet(key, result);
   return result;

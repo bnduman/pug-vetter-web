@@ -41,8 +41,12 @@ async function lookup(name) {
   lookupInFlight = true;
   setStatus(`Looking up ${name}…`);
   btn.disabled = true;
+  // Re-searching someone moves their card back to the top (fresh prepend).
+  feedEl.querySelector(`[data-card="${CSS.escape(name.toLowerCase())}"]`)?.remove();
   try {
-    const data = await vet(name);
+    // The scorecard renders as soon as the first query lands (gearPending);
+    // the same card is then updated in place when the gear scan finishes.
+    const data = await vet(name, { onScorecard: (partial) => { setStatus(""); addCard(partial); } });
     setStatus("");
     addCard(data);
   } catch (err) {
@@ -64,12 +68,12 @@ function esc(s) {
 }
 
 function addCard(data) {
-  // Re-searching someone removes their old card so the fresh one sits on top.
+  // An existing card (the gearPending scorecard) is updated in place — no
+  // flash replay, no position jump; a new lookup gets a fresh card on top.
   const key = data.name.toLowerCase();
-  feedEl.querySelector(`[data-card="${CSS.escape(key)}"]`)?.remove();
-
-  const card = document.createElement("div");
-  card.className = "card flash";
+  const existing = feedEl.querySelector(`[data-card="${CSS.escape(key)}"]`);
+  const card = existing ?? document.createElement("div");
+  if (!existing) card.className = "card flash";
   card.dataset.card = key;
   card.innerHTML = data.found ? renderResult(data) : renderNoData(data);
 
@@ -79,8 +83,10 @@ function addCard(data) {
     });
     fillGuildLine(card, data.name);
   }
-  feedEl.prepend(card);
-  while (feedEl.children.length > FEED_CAP) feedEl.lastChild.remove();
+  if (!existing) {
+    feedEl.prepend(card);
+    while (feedEl.children.length > FEED_CAP) feedEl.lastChild.remove();
+  }
 }
 
 // Fills the "raided with me N times" line on a card, asynchronously so the
@@ -156,9 +162,12 @@ function renderResult(data) {
          title="GearScore — same calculation as classic-armory.org${multi ? " (best of " + sets.length + " specs)" : ""}">GS ${data.gearscore}</span>`
     : "";
 
-  const gearBlocks = sets.length
-    ? sets.map((s) => renderGearSet(s, multi)).join("")
-    : `<div class="section-title">Enchants &amp; gems</div>
+  const gearBlocks = data.gearPending
+    ? `<div class="section-title">Enchants &amp; gems</div>
+       <div class="meta">⏳ Loading gear &amp; enchants…</div>`
+    : sets.length
+      ? sets.map((s) => renderGearSet(s, multi)).join("")
+      : `<div class="section-title">Enchants &amp; gems</div>
        <div class="meta">${data.gearError ? `⚠ Gear couldn't be loaded: ${esc(data.gearError)}` : "No gear data available from logs."}</div>`;
 
   return `
@@ -166,7 +175,7 @@ function renderResult(data) {
       <h2 style="color:${data.classColor}">${esc(data.name)}</h2>
       <span class="spec-badge">${esc(specTxt)}</span>
       ${gsBadge}
-      <button class="add-roster" type="button">＋ Add to roster</button>
+      <button class="add-roster" type="button"${data.gearPending ? ' disabled title="waiting for gear data…"' : ""}>＋ Add to roster</button>
     </div>
     <div class="meta">${esc(data.realm)} · ${esc(data.region)} &nbsp;·&nbsp; last logged raid: ${lastLog}
       &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}${multi ? " &nbsp;·&nbsp; dual-spec: showing both gear sets" : ""}</div>
