@@ -3,6 +3,7 @@
 // every item, and their specific consumables (flask / elixirs / food). Reuses
 // the PuG Vetter gear + enchant logic.
 import { analyzeEnchants, buildGearList } from "../analyze.js";
+import { TALENT_TREES } from "../wcl-classes.js";
 
 function unwrapPlayerDetails(pd) {
   if (pd && typeof pd === "object" && pd.data && typeof pd.data === "object") {
@@ -73,11 +74,30 @@ export function classifyConsumables(auras) {
 }
 
 /**
+ * Talent tree distribution from WCL combatantinfo `talents` (an array of 3
+ * per-tree point sums, e.g. [21,40,0] for a warrior). WCL doesn't expose which
+ * individual talents were taken for TBC — only these three totals.
+ * -> { trees:[{name, points}], total, spec, distribution } or null.
+ */
+export function classifyTalents(rawTalents, className) {
+  if (!Array.isArray(rawTalents) || rawTalents.length !== 3) return null;
+  const points = rawTalents.map((t) => (typeof t === "number" ? t : (t?.id ?? 0)));
+  const total = points.reduce((n, p) => n + p, 0);
+  if (total === 0) return null; // no talent data logged
+  const names = TALENT_TREES[className] ?? ["Tree 1", "Tree 2", "Tree 3"];
+  const trees = points.map((p, i) => ({ name: names[i] ?? `Tree ${i + 1}`, points: p }));
+  let primary = trees[0];
+  for (const t of trees) if (t.points > primary.points) primary = t;
+  return { trees, total, spec: primary.points > 0 ? primary.name : null, distribution: points.join("/") };
+}
+
+/**
  * Build the full per-pull prep model.
  * @param playerDetails  WCL playerDetails (includeCombatantInfo) for the fight
  * @param consumablesById  map of player id -> their buff auras (per-player)
+ * @param talentsById  map of player id -> raw combatantinfo talents array
  */
-export function buildRaidPrep(playerDetails, consumablesById = {}) {
+export function buildRaidPrep(playerDetails, consumablesById = {}, talentsById = {}) {
   const pd = unwrapPlayerDetails(playerDetails);
   const players = [];
   for (const [bucket, role] of ROLE_BUCKETS) {
@@ -101,6 +121,7 @@ export function buildRaidPrep(playerDetails, consumablesById = {}) {
         missingCount,
         gear: hasGear ? buildGearList(gearRaw) : [],
         consumables,
+        talents: classifyTalents(talentsById[p.id], p.type),
         issues,
       });
     }

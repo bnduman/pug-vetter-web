@@ -7,7 +7,8 @@ import { cacheGet, cacheSet, postGraphQL, WCLError } from "../wcl.js";
 import { buildReport } from "./normalize.js";
 import { buildRaidPrep, playerList } from "./prep.js";
 import {
-  PLAYER_BUFFS_QUERY, PLAYER_DETAILS_QUERY, REPORT_EVENTS_QUERY, REPORT_META_QUERY,
+  COMBATANT_INFO_QUERY, PLAYER_BUFFS_QUERY, PLAYER_DETAILS_QUERY,
+  REPORT_EVENTS_QUERY, REPORT_META_QUERY,
 } from "./queries.js";
 
 // How many per-player buff queries to run at once when reading consumables.
@@ -62,6 +63,15 @@ async function fetchFightEvents(code, fightId, start, end) {
 async function fetchPlayerDetails(code, fightId) {
   const data = await postGraphQL(PLAYER_DETAILS_QUERY, { code, fightIDs: [fightId] });
   return data?.reportData?.report?.playerDetails;
+}
+
+// Talent tree totals per player, from one combatantinfo query for the fight.
+async function fetchTalents(code, fightId, start, end) {
+  const data = await postGraphQL(COMBATANT_INFO_QUERY, { code, fightID: fightId, start, end });
+  const rows = data?.reportData?.report?.events?.data ?? [];
+  const byId = {};
+  for (const r of rows) if (r.sourceID != null) byId[r.sourceID] = r.talents;
+  return byId;
 }
 
 async function fetchPlayerBuffs(code, fightId, start, end, sourceID) {
@@ -136,10 +146,15 @@ export async function fetchReport(code, fightId = null) {
     let prep = eventCache.get(prepKey);
     if (prep === undefined) {
       const players = playerList(pd);
-      const consumablesById = players.length
-        ? await fetchConsumables(code, fightId, fight.startTime ?? 0, fight.endTime ?? 0, players)
-        : {};
-      prep = buildRaidPrep(pd, consumablesById);
+      const start = fight.startTime ?? 0;
+      const end = fight.endTime ?? 0;
+      const [consumablesById, talentsById] = players.length
+        ? await Promise.all([
+            fetchConsumables(code, fightId, start, end, players),
+            fetchTalents(code, fightId, start, end).catch(() => ({})),
+          ])
+        : [{}, {}];
+      prep = buildRaidPrep(pd, consumablesById, talentsById);
       eventCache.set(prepKey, prep);
     }
 

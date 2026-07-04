@@ -502,6 +502,22 @@ footer a { color: var(--accent); }
   display: flex; flex-wrap: wrap; gap: 4px 18px;
   padding: 10px 12px 0; font-size: 13px;
 }
+.csi-spec { font-size: 12px; margin-left: 8px; white-space: nowrap; }
+
+/* talent distribution (per-tree point totals) */
+.csi-talents { padding: 10px 12px 2px; }
+.csi-talents h5 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.csi-tal-row {
+  display: grid; grid-template-columns: 108px 1fr 28px; gap: 10px;
+  align-items: center; padding: 2px 0; font-size: 13px;
+}
+.csi-tal-name { color: var(--muted); white-space: nowrap; }
+.csi-tal-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.csi-tal-bar > span { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
+.csi-tal-pts { text-align: right; color: var(--muted); }
+.csi-tal-primary .csi-tal-name { color: var(--text); font-weight: 600; }
+.csi-tal-primary .csi-tal-bar > span { background: var(--accent); }
+.csi-tal-primary .csi-tal-pts { color: var(--accent); }
 .csi-prep-player > summary {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding: 8px 12px; cursor: pointer; list-style: none; font-size: 14px;

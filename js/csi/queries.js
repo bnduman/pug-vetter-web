@@ -66,6 +66,21 @@ query($code: String!, $fightIDs: [Int]!) {
 }
 `;
 
+// Raw combatantinfo events for a fight — one per player, carrying the talent
+// tree point totals (WCL's playerDetails.combatantInfo.talents is broken for
+// TBC; this raw event has the real per-tree sums + specID).
+export const COMBATANT_INFO_QUERY = `
+query($code: String!, $fightID: Int!, $start: Float!, $end: Float!) {
+  reportData {
+    report(code: $code) {
+      events(fightIDs: [$fightID], startTime: $start, endTime: $end, dataType: CombatantInfo, limit: 100) {
+        data
+      }
+    }
+  }
+}
+`;
+
 // One player's buffs for a fight (sourceID-filtered) — used to read their
 // specific flask/elixir/food. Pre-pull consumables don't emit per-player
 // events, so the per-source buffs table is the only reliable source; we fetch

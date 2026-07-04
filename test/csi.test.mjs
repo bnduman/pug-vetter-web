@@ -8,7 +8,7 @@ import { normalizeEvent, normalizeActors, playerRoles, normalizeFight } from "..
 import { actorIndex } from "../js/csi/format.js";
 import { applyMechanicRules, mechanicFindings } from "../js/csi/mechanics.js";
 import { summarizeFight } from "../js/csi/summary.js";
-import { buildRaidPrep, classifyConsumables, playerList } from "../js/csi/prep.js";
+import { buildRaidPrep, classifyConsumables, classifyTalents, playerList } from "../js/csi/prep.js";
 
 // --- helpers ---------------------------------------------------------------
 const idxOf = (actors) => new Map(actors.map((a) => [a.id, a]));
@@ -247,6 +247,21 @@ test("classifyConsumables: battle + guardian elixir pair is flask-equivalent", (
   assert.equal(unknowns.flaskReady, true);
 });
 
+test("classifyTalents: per-tree totals -> named trees + primary spec", () => {
+  // warrior [21,40,0] (raw {id} shape) -> Fury
+  const t = classifyTalents([{ id: 21 }, { id: 40 }, { id: 0 }], "Warrior");
+  assert.equal(t.distribution, "21/40/0");
+  assert.equal(t.spec, "Fury");
+  assert.equal(t.total, 61);
+  assert.deepEqual(t.trees.map((x) => x.name), ["Arms", "Fury", "Protection"]);
+  // shaman [41,0,20] -> Elemental
+  assert.equal(classifyTalents([{ id: 41 }, { id: 0 }, { id: 20 }], "Shaman").spec, "Elemental");
+  // no data / malformed -> null
+  assert.equal(classifyTalents([{ id: 0 }, { id: 0 }, { id: 0 }], "Mage"), null);
+  assert.equal(classifyTalents([], "Mage"), null);
+  assert.equal(classifyTalents(undefined, "Mage"), null);
+});
+
 test("playerList: flattens roles with ids", () => {
   const pd = { data: { playerDetails: {
     tanks: [{ id: 1, name: "T" }], healers: [], dps: [{ id: 3, name: "D" }],
@@ -266,7 +281,10 @@ test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering"
     1: [{ name: "Flask of Fortification" }, { name: "Well Fed" }],
     3: [{ name: "Elixir of Major Agility" }],
   };
-  const r = buildRaidPrep(pd, cons);
+  const talents = { 1: [{ id: 0 }, { id: 47 }, { id: 14 }] }; // Paladin -> Protection
+  const r = buildRaidPrep(pd, cons, talents);
+  assert.equal(r.players.find((p) => p.name === "Tankman").talents.spec, "Protection");
+  assert.equal(r.players.find((p) => p.name === "Dpsguy").talents, null); // no talent data
   assert.equal(r.raidSize, 3);
   assert.equal(r.coverage.flaskReady, 1); // only Tankman (Dpsguy has one elixir)
   assert.equal(r.coverage.food, 1);

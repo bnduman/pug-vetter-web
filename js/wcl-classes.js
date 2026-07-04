@@ -32,6 +32,22 @@ export const CLASS_COLORS = {
 export const ROLE_ICONS = { tank: "🛡️", healer: "💚", dps: "⚔️" };
 export const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" };
 
+// Talent tree names per class, in the in-game tab order (0/1/2) that WCL's
+// combatantinfo `talents` totals array uses. WCL exposes only per-tree point
+// sums for TBC, not individual talents — this labels the three sums.
+export const TALENT_TREES = {
+  Warrior: ["Arms", "Fury", "Protection"],
+  Paladin: ["Holy", "Protection", "Retribution"],
+  Hunter: ["Beast Mastery", "Marksmanship", "Survival"],
+  Rogue: ["Assassination", "Combat", "Subtlety"],
+  Priest: ["Discipline", "Holy", "Shadow"],
+  Shaman: ["Elemental", "Enhancement", "Restoration"],
+  Mage: ["Arcane", "Fire", "Frost"],
+  Warlock: ["Affliction", "Demonology", "Destruction"],
+  Druid: ["Balance", "Feral Combat", "Restoration"],
+  "Death Knight": ["Blood", "Frost", "Unholy"], // not in TBC; harmless fallback
+};
+
 // Real TBC spec names -> role. Used to decide (from rankings, for free) whether
 // a character plays multiple ROLES and is worth scanning for a second gear set.
 // WCL occasionally mislabels a spec with a tier-set name (e.g. "Justicar");

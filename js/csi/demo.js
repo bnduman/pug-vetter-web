@@ -106,7 +106,24 @@ const demoConsumables = {
   9: B("Elixir of Major Shadow Power", "Elixir of Major Fortitude", "Well Fed"),
 };
 
-const demoPrep = () => buildRaidPrep(demoPlayerDetails, demoConsumables);
+// talents: raw combatantinfo shape (3 per-tree point sums as {id}). Class tree
+// order: Paladin Holy/Prot/Ret, Warrior Arms/Fury/Prot, Priest Disc/Holy/Shadow,
+// Druid Balance/Feral/Resto, Shaman Ele/Enh/Resto, Rogue Assa/Combat/Subt,
+// Hunter BM/MM/Surv, Mage Arcane/Fire/Frost, Warlock Affl/Demo/Destro.
+const tp = (...pts) => pts.map((id) => ({ id }));
+const demoTalents = {
+  1: tp(0, 47, 14),  // Sahmeran   Paladin -> Protection
+  2: tp(33, 5, 23),  // Thornblade Warrior -> Arms
+  3: tp(25, 0, 36),  // Shockheal  Shaman  -> Restoration
+  4: tp(23, 38, 0),  // Lightwell  Priest  -> Holy
+  5: tp(0, 20, 41),  // Naturae    Druid   -> Restoration
+  6: tp(20, 41, 0),  // Backstabz  Rogue   -> Combat
+  7: tp(0, 41, 20),  // Huntex     Hunter  -> Marksmanship
+  8: tp(48, 0, 13),  // Frostmage  Mage    -> Arcane
+  9: tp(41, 0, 20),  // Shadowlock Warlock -> Affliction
+};
+
+const demoPrep = () => buildRaidPrep(demoPlayerDetails, demoConsumables, demoTalents);
 
 const fight1 = {
   id: "gruul-1",

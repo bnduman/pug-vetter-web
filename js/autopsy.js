@@ -260,6 +260,11 @@ function prepRow(p) {
     if (cons.drums) consLines.push(`<span class="ok">🥁 Drums of Battle</span>`);
   }
 
+  // Spec label on the summary row, from the talent tree totals.
+  const specLabel = p.talents?.spec
+    ? `<span class="csi-spec dim">${esc(p.talents.spec)} ${p.talents.distribution}</span>`
+    : "";
+
   const gear = p.gear.length
     ? `<div class="csi-gear">${p.gear.map(gearRow).join("")}</div>`
     : `<p class="dim csi-gear">No gear data for this pull.</p>`;
@@ -267,12 +272,30 @@ function prepRow(p) {
   return `
     <details class="csi-prep-player csi-st-${status}">
       <summary>
-        <span class="csi-pname" style="color:${nameColor}">${esc(p.name)}</span>
+        <span class="csi-pname" style="color:${nameColor}">${esc(p.name)}</span>${specLabel}
         <span class="csi-pchips">${flaskPill}${foodPill}${enchPill}</span>
       </summary>
+      ${talentBlock(p.talents)}
       <div class="csi-cons-detail">${consLines.join("")}</div>
       ${gear}
     </details>`;
+}
+
+// Talent tree distribution — three point-bars (WCL gives per-tree totals only,
+// not individual talents).
+function talentBlock(t) {
+  if (!t) return "";
+  const max = Math.max(1, ...t.trees.map((x) => x.points));
+  const rows = t.trees.map((x) => {
+    const w = Math.round((x.points / max) * 100);
+    const cls = x.name === t.spec ? "csi-tal-primary" : "";
+    return `<div class="csi-tal-row ${cls}">
+      <span class="csi-tal-name">${esc(x.name)}</span>
+      <span class="csi-tal-bar"><span style="width:${w}%"></span></span>
+      <span class="csi-tal-pts mono">${x.points}</span>
+    </div>`;
+  }).join("");
+  return `<div class="csi-talents"><h5>Talents — ${esc(t.spec ?? "?")} (${t.distribution})</h5>${rows}</div>`;
 }
 
 function gearRow(g) {
