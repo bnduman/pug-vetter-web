@@ -1,10 +1,9 @@
 "use strict";
 // Top-level tab switching between the PuG Vetter view and the Wipe Autopsy view.
 const tabs = document.querySelectorAll(".tab");
-const views = {
-  vetter: document.getElementById("view-vetter"),
-  autopsy: document.getElementById("view-autopsy"),
-};
+// One view per tab, found by convention: data-tab="x" <-> #view-x.
+const views = {};
+for (const t of tabs) views[t.dataset.tab] = document.getElementById(`view-${t.dataset.tab}`);
 
 function activate(name) {
   for (const t of tabs) {

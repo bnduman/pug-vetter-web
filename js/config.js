@@ -29,7 +29,7 @@ export const CONFIG = {
 
   // Your guild — the source of raid logs for the "raided with me" check
   // (uses WCL guild attendance). Leave GUILD_NAME empty ("") to hide it.
-  GUILD_NAME: "Cant Park There Mate",
+  GUILD_NAME: "SEND IT",
   GUILD_REALM: "Thunderstrike",
   GUILD_REGION: "EU",
   // Your main character. "Raided with me" counts shared raids with THIS

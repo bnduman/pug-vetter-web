@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Static, client-side PuG vetting tool for WoW Classic Anniversary (Warcraft Logs)",
   "scripts": {
-    "test": "node --test test/csi.test.mjs",
-    "smoke": "node test/smoke.mjs"
+    "test": "node --test test/csi.test.mjs test/officer.test.mjs",
+    "smoke": "node test/smoke.mjs",
+    "gen:rule-ids": "node scripts/gen-rule-ids.mjs"
   }
 }

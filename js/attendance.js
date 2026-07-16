@@ -2,7 +2,7 @@
 // guild attendance (the player lists of every report uploaded under the
 // guild's banner). Cached in localStorage; refreshed every few hours.
 import { CONFIG } from "./config.js";
-import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
+import { WCLError, cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 
 const ATTENDANCE_QUERY = `
 query($name: String!, $serverSlug: String!, $serverRegion: String!, $page: Int!) {
@@ -27,6 +27,21 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!, $page: Int!)
 const slugify = (realm) =>
   (realm ?? "").trim().toLowerCase().replace(/'/g, "").replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "");
 
+// WCL's attendance endpoint intermittently hangs past our 20s timeout
+// (observed 2026-07-16 while switching guilds: identical queries alternated
+// between ~400ms and timeouts for ~10 minutes). One retry rescues those runs;
+// non-timeout errors (auth, bad query) still surface immediately.
+async function attendancePage(vars) {
+  try {
+    return await postGraphQL(ATTENDANCE_QUERY, vars);
+  } catch (err) {
+    if (err instanceof WCLError && /timed out/i.test(err.message)) {
+      return postGraphQL(ATTENDANCE_QUERY, vars);
+    }
+    throw err;
+  }
+}
+
 // -> { guildName, reportsScanned, players: { nameLower:
 //      {name, count, lastTs, raids: [{code, ts, zone}] (newest first)} } }
 // or null when no guild is configured / the guild can't be found.
@@ -47,7 +62,7 @@ export async function getAttendanceMap() {
   let reportsScanned = 0;
 
   for (let page = 1; page <= CONFIG.ATTENDANCE_MAX_PAGES; page++) {
-    const data = await postGraphQL(ATTENDANCE_QUERY, { ...vars, page });
+    const data = await attendancePage({ ...vars, page });
     const guild = data.guildData?.guild;
     if (!guild) return null; // guild not found on WCL
     guildName = guild.name ?? guildName;

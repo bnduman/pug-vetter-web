@@ -357,19 +357,25 @@ footer a { color: var(--accent); }
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
-#view-autopsy { max-width: 1100px; margin: 0 auto; }
+#view-autopsy, #view-officer { max-width: 1100px; margin: 0 auto; }
 
 /* [hidden] is display:none in the UA sheet, but .layout's display:grid has
    higher specificity and would override it — keep the inactive view hidden. */
 .layout[hidden] { display: none; }
 
-/* helpers (scoped to the autopsy view) */
-#autopsy .dim { color: var(--muted); }
-#autopsy .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; }
-#autopsy .bad { color: var(--bad); font-weight: 600; }
-#autopsy .ok { color: var(--good); font-weight: 600; }
-#autopsy .warn { color: var(--accent); }
-#autopsy .link { color: var(--accent); }
+/* helpers (scoped to the autopsy + officer views) */
+#autopsy .dim, #officer .dim { color: var(--muted); }
+#autopsy .mono, #officer .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Consolas, monospace; }
+#autopsy .bad, #officer .bad { color: var(--bad); font-weight: 600; }
+#autopsy .ok, #officer .ok { color: var(--good); font-weight: 600; }
+#autopsy .warn, #officer .warn { color: var(--accent); }
+#autopsy .link, #officer .link { color: var(--accent); }
+
+/* officer tab */
+#officer .off-h3 { margin: 26px 0 6px; font-size: 17px; }
+#officer .off-toggle { color: var(--muted); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+#officer select { min-width: 320px; max-width: 100%; }
+#officer #off-copy { margin-top: 4px; }
 .linklike {
   background: none; border: none; color: var(--accent);
   cursor: pointer; padding: 0; font-size: 14px;

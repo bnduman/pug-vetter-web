@@ -12,6 +12,7 @@
 <nav class="tabs" id="tabs" role="tablist" aria-label="Views">
   <button class="tab active" type="button" role="tab" id="tab-vetter" aria-controls="view-vetter" aria-selected="true" data-tab="vetter">⚔️ PuG Vetter</button>
   <button class="tab" type="button" role="tab" id="tab-autopsy" aria-controls="view-autopsy" aria-selected="false" data-tab="autopsy">🔬 Wipe Autopsy</button>
+  <button class="tab" type="button" role="tab" id="tab-officer" aria-controls="view-officer" aria-selected="false" data-tab="officer">🛡️ Officer</button>
 </nav>
 
 <div class="layout" id="view-vetter" role="tabpanel" aria-labelledby="tab-vetter">
@@ -60,8 +61,13 @@
   <div id="autopsy"></div>
 </section>
 
+<section id="view-officer" role="tabpanel" aria-labelledby="tab-officer" hidden>
+  <div id="officer"></div>
+</section>
+
 <script type="module" src="js/app.js"></script>
 <script type="module" src="js/autopsy.js"></script>
+<script type="module" src="js/officer.js"></script>
 <script type="module" src="js/tabs.js"></script>
 </body>
 </html>

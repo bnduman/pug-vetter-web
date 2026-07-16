@@ -100,8 +100,15 @@ export function classifyTalents(rawTalents, className) {
 export function buildRaidPrep(playerDetails, consumablesById = {}, talentsById = {}) {
   const pd = unwrapPlayerDetails(playerDetails);
   const players = [];
+  const seen = new Set();
   for (const [bucket, role] of ROLE_BUCKETS) {
     for (const p of pd[bucket] ?? []) {
+      // Dual-role players (a feral offtank) appear in two buckets when the
+      // details span several fights; keep the first (highest-priority role).
+      if (p.id != null) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+      }
       const gearRaw = p.combatantInfo?.gear ?? [];
       const hasGear = gearRaw.length > 0;
       const en = hasGear ? analyzeEnchants(gearRaw) : null;

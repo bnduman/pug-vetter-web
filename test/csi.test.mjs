@@ -7,6 +7,8 @@ import { parseReportUrl } from "../js/csi/parse-url.js";
 import { normalizeEvent, normalizeActors, playerRoles, normalizeFight } from "../js/csi/normalize.js";
 import { actorIndex } from "../js/csi/format.js";
 import { applyMechanicRules, mechanicFindings } from "../js/csi/mechanics.js";
+import { RULES, lookupRule } from "../js/csi/rules.js";
+import { RULE_SPELL_IDS } from "../js/csi/rule-ids.js";
 import { summarizeFight } from "../js/csi/summary.js";
 import { buildRaidPrep, classifyConsumables, classifyTalents, playerList } from "../js/csi/prep.js";
 
@@ -14,7 +16,7 @@ import { buildRaidPrep, classifyConsumables, classifyTalents, playerList } from 
 const idxOf = (actors) => new Map(actors.map((a) => [a.id, a]));
 const dmg = (t, tgt, ab, amt, opts = {}) => ({
   timestamp: t, type: "damage", sourceId: opts.src ?? "boss", targetId: tgt,
-  abilityName: ab, amount: amt, avoidable: opts.avoidable, hpPct: opts.hp,
+  abilityName: ab, abilityId: opts.id, amount: amt, avoidable: opts.avoidable, hpPct: opts.hp,
 });
 const heal = (t, src, tgt, ab, amt, hp) => ({
   timestamp: t, type: "heal", sourceId: src, targetId: tgt, abilityName: ab, amount: amt, hpPct: hp,
@@ -129,6 +131,44 @@ test("applyMechanicRules: tags avoidable; frontal is role-aware", () => {
   assert.equal(f.events[1].avoidable, true);
   assert.ok(!f.events[2].avoidable);
 });
+test("lookupRule: game ID is the primary key, name is the fallback", () => {
+  // 38235 = Hydross Water Tomb, harvested live; guards the generated map too.
+  const byId = lookupRule("Totally Mangled Name", 38235);
+  assert.equal(byId?.category, "chain");
+  assert.equal(byId, lookupRule("Water Tomb")); // name fallback finds the same rule
+  assert.equal(lookupRule(undefined, 38235), byId); // ID alone is enough
+  assert.equal(lookupRule("Nonsense", 999999999), null); // unknown ID + unknown name
+  assert.equal(lookupRule("Water Tomb", 999999999), byId); // unknown ID falls back to name
+});
+
+test("rule-ids: every generated ID maps to an existing catalogue entry", () => {
+  const entries = Object.entries(RULE_SPELL_IDS);
+  assert.ok(entries.length >= 40, `suspiciously small generated map (${entries.length})`);
+  for (const [id, key] of entries) {
+    assert.ok(RULES[key], `rule-ids ${id} -> "${key}" has no RULES entry`);
+  }
+});
+
+test("applyMechanicRules: ID-only match tags avoidable when the name is unknown", () => {
+  const idx = idxOf([{ id: "p1", role: "dps" }]);
+  const f = fight([
+    dmg(1000, "p1", "Renamed By WCL", 500, { id: 36240 }), // Gruul Cave In by ID
+    dmg(2000, "p1", "Renamed By WCL", 500),                // same name, no ID -> no match
+  ]);
+  applyMechanicRules(f, idx);
+  assert.equal(f.events[0].avoidable, true);
+  assert.ok(!f.events[1].avoidable);
+});
+
+test("mechanicFindings: nameless ID-only match is labeled with its ID", () => {
+  const idx = idxOf([{ id: "p1", role: "dps" }]);
+  const f = fight([dmg(1000, "p1", undefined, 500, { id: 36240 })]);
+  applyMechanicRules(f, idx);
+  const ms = mechanicFindings(f, idx);
+  assert.equal(ms.length, 1);
+  assert.equal(ms[0].ability, "#36240");
+});
+
 test("mechanicFindings: surfaces raidwide criticals (Blast Nova) and labels with the fight boss", () => {
   const actors = [{ id: "p1", role: "dps" }];
   const f = fight([dmg(1000, "p1", "Blast Nova", 9000), dmg(2000, "p1", "Whirlwind", 500)],
@@ -269,6 +309,17 @@ test("playerList: flattens roles with ids", () => {
   assert.deepEqual(playerList(pd), [
     { id: 1, name: "T", role: "tank" }, { id: 3, name: "D", role: "dps" },
   ]);
+});
+
+test("buildRaidPrep: dual-role player listed in two buckets appears once, as the higher role", () => {
+  const pd = { data: { playerDetails: {
+    tanks: [{ id: 7, name: "Hayvann", type: "Druid" }],
+    healers: [],
+    dps: [{ id: 7, name: "Hayvann", type: "Druid" }, { id: 8, name: "Other", type: "Mage" }],
+  } } };
+  const prep = buildRaidPrep(pd);
+  assert.equal(prep.raidSize, 2);
+  assert.deepEqual(prep.players.map((p) => `${p.name}:${p.role}`), ["Hayvann:tank", "Other:dps"]);
 });
 
 test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering", () => {
