@@ -4,11 +4,13 @@
 // primitives: avoidable / ground / frontal / chain, plus expected categories
 // (soak / tank / raidwide) that must NOT be blamed.
 //
-// Keyed by ability NAME (lowercased) — WCL resolves names from master data, and
-// the names came back 100% populated on live Anniversary logs. The spec wants
-// spell-ID keys eventually (names can collide across adds); that's a later
-// hardening. Interrupts, dispels, threat, and positional clustering need event
-// streams we don't fetch yet and are intentionally out of scope here.
+// Two-layer lookup: the generated RULE_SPELL_IDS map (rule-ids.js, harvested
+// from live Anniversary logs by scripts/gen-rule-ids.mjs) resolves an ability
+// game ID straight to its catalogue entry; ability NAME (lowercased) remains
+// the fallback for ranks/bosses absent from the harvested logs and for demo
+// data, which carries no IDs. Interrupts, dispels, threat, and positional
+// clustering need event streams we don't fetch yet and are intentionally out
+// of scope here.
 //
 // category meanings:
 //   avoidable  - ground/positioning damage to move out of      -> always avoidable
@@ -17,8 +19,9 @@
 //   soak       - expected on the assigned soaker                -> never blamed
 //   tank       - expected active-tank damage                    -> never blamed
 //   raidwide   - unavoidable raid damage (healing/death context)-> never blamed
+import { RULE_SPELL_IDS } from "./rule-ids.js";
 
-const RULES = {
+export const RULES = {
   // ---------------- Gruul's Lair ----------------
   "cave in": { encounter: "Gruul", category: "avoidable", severity: "high", advice: "Move out of the falling-rock area immediately." },
   "shatter": { encounter: "Gruul", category: "chain", severity: "critical", advice: "Spread as far as possible after Ground Slam before becoming Stoned." },
@@ -93,8 +96,13 @@ const RULES = {
   "toxic spores": { encounter: "Lady Vashj", category: "avoidable", severity: "high", advice: "Move out of the Toxic Spore pools immediately; they persist." },
 };
 
-/** Look up a mechanic rule by ability name (case-insensitive), or null. */
-export function lookupRule(abilityName) {
+/** Look up a mechanic rule by ability game ID (primary) or name (fallback,
+ *  case-insensitive), or null. */
+export function lookupRule(abilityName, abilityId) {
+  if (abilityId != null) {
+    const key = RULE_SPELL_IDS[abilityId];
+    if (key) return RULES[key] ?? null;
+  }
   if (!abilityName) return null;
   return RULES[abilityName.toLowerCase()] ?? null;
 }

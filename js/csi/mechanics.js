@@ -46,7 +46,7 @@ function sourceAllowed(e, rule) {
 export function applyMechanicRules(fight, idx) {
   for (const e of fight.events) {
     if (e.type !== "damage" || e.avoidable) continue;
-    const rule = lookupRule(e.abilityName);
+    const rule = lookupRule(e.abilityName, e.abilityId);
     if (!rule || !sourceAllowed(e, rule)) continue;
     const role = e.targetId ? idx.get(e.targetId)?.role : undefined;
     if (isAvoidableHit(rule, role)) e.avoidable = true;
@@ -63,15 +63,18 @@ export function mechanicFindings(fight, idx) {
 
   for (const e of fight.events) {
     if (e.type !== "damage") continue;
-    const rule = lookupRule(e.abilityName);
+    const rule = lookupRule(e.abilityName, e.abilityId);
     if (!rule || !sourceAllowed(e, rule)) continue;
     const role = e.targetId ? idx.get(e.targetId)?.role : undefined;
     if (!includeForFindings(rule, role)) continue;
 
-    let m = byAbility.get(e.abilityName);
+    // Group by name so ranks of the same mechanic merge; an ID-only match
+    // (name missing from the report's ability dictionary) falls back to its ID.
+    const label = e.abilityName ?? `#${e.abilityId}`;
+    let m = byAbility.get(label);
     if (!m) {
       m = {
-        ability: e.abilityName,
+        ability: label,
         encounter: rule.encounter,
         category: rule.category,
         raidLevel: rule.category === "raidwide",
@@ -82,7 +85,7 @@ export function mechanicFindings(fight, idx) {
         players: new Set(),
         deaths: new Set(),
       };
-      byAbility.set(e.abilityName, m);
+      byAbility.set(label, m);
     }
     m.total += e.amount ?? 0;
     m.ticks += 1;
@@ -98,9 +101,9 @@ export function mechanicFindings(fight, idx) {
     for (const e of fight.events) {
       if (e.type !== "damage" || e.targetId !== d.targetId) continue;
       if (e.timestamp < windowStart || e.timestamp > d.timestamp) continue;
-      const rule = lookupRule(e.abilityName);
+      const rule = lookupRule(e.abilityName, e.abilityId);
       if (!rule || !sourceAllowed(e, rule) || !includeForFindings(rule, role)) continue;
-      byAbility.get(e.abilityName)?.deaths.add(d.targetId);
+      byAbility.get(e.abilityName ?? `#${e.abilityId}`)?.deaths.add(d.targetId);
     }
   }
 
