@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/officer-data.js";
+import { mergeAlts, resolveMain } from "../js/attendance.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
 
@@ -34,6 +35,67 @@ test("consumablesByFight: counts flask-equivalent and food per attended pull", (
 test("consumablesByFight: missing auras array counts as an unprepped pull", () => {
   const m = consumablesByFight([{ fight: 1, sourceID: 1 }]);
   assert.deepEqual(m.get(1), { attended: 1, flaskFights: 0, foodFights: 0 });
+});
+
+// --- alt bundling --------------------------------------------------------------
+
+test("resolveMain: alt -> main (case-insensitive), others unchanged", () => {
+  const alts = { Sahmeran: ["Hayvann"] };
+  assert.equal(resolveMain("hayvann", alts), "Sahmeran");
+  assert.equal(resolveMain("Hayvann", alts), "Sahmeran");
+  assert.equal(resolveMain("Sahmeran", alts), "Sahmeran");
+  assert.equal(resolveMain("Peerica", alts), "Peerica");
+  assert.equal(resolveMain("x", {}), "x");
+});
+
+test("mergeAlts: absorbs alt raids into the main, deduping shared reports", () => {
+  const players = {
+    sahmeran: { name: "Sahmeran", count: 2, lastTs: 2000, raids: [
+      { code: "r2", ts: 2000, zone: "z" }, { code: "r1", ts: 1000, zone: "z" },
+    ] },
+    hayvann: { name: "Hayvann", count: 2, lastTs: 5000, raids: [
+      { code: "r5", ts: 5000, zone: "z" }, { code: "r2", ts: 2000, zone: "z" }, // r2 shared: swapped chars mid-raid
+    ] },
+    other: { name: "Other", count: 1, lastTs: 1000, raids: [{ code: "r1", ts: 1000, zone: "z" }] },
+  };
+  mergeAlts(players, { Sahmeran: ["Hayvann"] });
+  assert.equal(players.hayvann, undefined);
+  const s = players.sahmeran;
+  assert.equal(s.count, 3); // r1, r2 (once), r5
+  assert.equal(s.lastTs, 5000);
+  assert.deepEqual(s.raids.map((r) => r.code), ["r5", "r2", "r1"]); // newest first
+  assert.deepEqual(s.alts, ["Hayvann"]);
+  assert.equal(players.other.count, 1); // untouched
+});
+
+test("mergeAlts: creates the main when only the alt was ever logged", () => {
+  const players = {
+    hayvann: { name: "Hayvann", count: 1, lastTs: 5000, raids: [{ code: "r5", ts: 5000, zone: "z" }] },
+  };
+  mergeAlts(players, { Sahmeran: ["Hayvann"] });
+  assert.equal(players.sahmeran.name, "Sahmeran");
+  assert.equal(players.sahmeran.count, 1);
+  assert.deepEqual(players.sahmeran.alts, ["Hayvann"]);
+});
+
+test("mergeAlts: unknown alts and empty config are no-ops", () => {
+  const players = { peerica: { name: "Peerica", count: 1, lastTs: 1, raids: [{ code: "r1", ts: 1, zone: "z" }] } };
+  const before = JSON.stringify(players);
+  mergeAlts(players, { Sahmeran: ["Hayvann"], Peerica: [] });
+  mergeAlts(players, {});
+  assert.equal(JSON.stringify(players), before);
+});
+
+test("buildRoster: merged mains carry their alts through", () => {
+  const players = {
+    sahmeran: { name: "Sahmeran", count: 1, lastTs: 2000, raids: [{ code: "r2", ts: 2000, zone: "z" }] },
+    hayvann: { name: "Hayvann", count: 1, lastTs: 1000, raids: [{ code: "r1", ts: 1000, zone: "z" }] },
+  };
+  mergeAlts(players, { Sahmeran: ["Hayvann"] });
+  const { rows } = buildRoster({ guildName: "g", reportsScanned: 2, players });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].count, 2);
+  assert.deepEqual(rows[0].alts, ["Hayvann"]);
 });
 
 // --- attendance roster -------------------------------------------------------

@@ -2,7 +2,7 @@
 import { CONFIG } from "./config.js";
 import { QUALITY_COLORS } from "./analyze.js";
 import { ENCHANT_SPELLS } from "./enchant-spells.js";
-import { getCoraidMap } from "./attendance.js";
+import { getCoraidMap, resolveMain } from "./attendance.js";
 import { gearScoreColor } from "./gearscore.js";
 import { ROLE_ICONS, ROLE_LABEL, SPEC_ROLE } from "./wcl-classes.js";
 import { vet } from "./vet.js";
@@ -97,8 +97,10 @@ async function fillGuildLine(card, charName) {
   try {
     const co = await getCoraidMap();
     if (!co) { line.remove(); return; }
-    const meKey = (CONFIG.ME_NAME || "").toLowerCase();
-    if (meKey && charName.toLowerCase() === meKey) {
+    // Alts count as their configured main (CONFIG.ALTS) on both sides.
+    const mainName = resolveMain(charName);
+    const meKey = resolveMain(CONFIG.ME_NAME || "").toLowerCase();
+    if (meKey && mainName.toLowerCase() === meKey) {
       line.textContent = `⭐ This is ${co.meName} — your reference character.`;
       line.classList.add("known");
       return;
@@ -107,13 +109,14 @@ async function fillGuildLine(card, charName) {
       line.textContent = `${CONFIG.ME_NAME} isn't in ${co.guildName}'s logs — set ME_NAME in config.`;
       return;
     }
-    const entry = co.players[charName.toLowerCase()];
+    const entry = co.players[mainName.toLowerCase()];
     if (entry) {
       const last = entry.lastTs ? new Date(entry.lastTs).toLocaleDateString() : "?";
       line.innerHTML = `🤝 Raided with <b>${esc(co.meName)}</b> `
-        + `<span class="att-count" role="button" tabindex="0" data-name="${esc(charName.toLowerCase())}" `
+        + `<span class="att-count" role="button" tabindex="0" data-name="${esc(mainName.toLowerCase())}" `
         + `title="Show every shared raid log">${entry.withMe}×</span>`
-        + ` of ${co.meRaidCount} · last ${last}`;
+        + ` of ${co.meRaidCount} · last ${last}`
+        + (mainName !== charName ? ` · counting ${esc(mainName)}'s characters` : "");
       line.classList.add("known");
     } else {
       line.textContent = `No shared raids with ${co.meName} in the last ${co.reportsScanned} logs.`;

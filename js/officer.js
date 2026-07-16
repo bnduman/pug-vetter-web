@@ -4,7 +4,7 @@
 // autopsy.js. Data is lazy: nothing is fetched until the tab is first opened.
 import { CONFIG } from "./config.js";
 import { WCLError } from "./wcl.js";
-import { getAttendanceMap } from "./attendance.js";
+import { getAttendanceMap, resolveMain } from "./attendance.js";
 import {
   buildRoster, fetchOfficerCard, listGuildReports, reportCardToDiscord,
 } from "./officer-data.js";
@@ -82,12 +82,14 @@ function cardHtml(c) {
 
   const rows = c.players.map((p) => {
     const color = CLASS_COLORS[p.class] ?? "var(--text)";
+    const main = resolveMain(p.name);
+    const altTag = main !== p.name ? ` <span class="dim">(${esc(main)}'s alt)</span>` : "";
     const spec = p.talents ? `${p.talents.spec ?? "?"} ${p.talents.distribution}` : "?";
     const ench = p.hasGear
       ? (p.missingCount === 0 ? '<span class="ok">✓</span>' : `<span class="warn">${p.missingCount} missing</span>`)
       : '<span class="dim" title="No gear data logged for this player">no data</span>';
     return `<tr>
-      <td><span style="color:${color}">${esc(p.name)}</span> ${ROLE_ICONS[p.role] ?? ""}</td>
+      <td><span style="color:${color}">${esc(p.name)}</span> ${ROLE_ICONS[p.role] ?? ""}${altTag}</td>
       <td class="dim">${esc(spec)}</td>
       <td class="mono dim">${p.perFight ? p.perFight.attended : "?"}/${c.fights.length}</td>
       ${ratioCell(p.perFight, "flaskFights")}
@@ -119,7 +121,7 @@ function rosterHtml() {
   const rows = roster.rows.filter((r) => showEveryone || r.count >= MIN_RAIDS);
   const body = rows.map((r) => `
     <tr>
-      <td>${esc(r.name)}${r.fading ? ' <span class="warn" title="Regular who missed the last 3 raids">⚠ fading</span>' : ""}</td>
+      <td>${esc(r.name)}${r.alts?.length ? ` <span class="dim" title="Counted together (js/config.js ALTS)">+ ${esc(r.alts.join(", "))}</span>` : ""}${r.fading ? ' <span class="warn" title="Regular who missed the last 3 raids">⚠ fading</span>' : ""}</td>
       <td class="mono">${r.count}/${roster.totalReports}</td>
       <td class="mono ${r.pct >= 66 ? "ok" : ""}">${r.pct}%</td>
       <td class="mono">${r.streak || "–"}</td>

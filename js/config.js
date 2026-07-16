@@ -36,6 +36,12 @@ export const CONFIG = {
   // character (must appear in the guild's logs). Empty -> falls back to
   // plain guild attendance.
   ME_NAME: "Sahmeran",
+  // Characters that belong to the same person: MAIN -> [alts...]. Attendance,
+  // "raided with me", and the officer roster count them as one player. WCL
+  // has no public character->account link, so this is maintained by hand.
+  ALTS: {
+    Sahmeran: ["Hayvann"],
+  },
   // How many attendance pages to scan (25 raids per page).
   ATTENDANCE_MAX_PAGES: 4,
   ATTENDANCE_TTL_SECONDS: 21600, // refresh guild history every 6h

@@ -60,6 +60,7 @@ export function buildRoster(attMap, { recentWindow = 3 } = {}) {
       && reports.slice(0, recentWindow).every((r) => !codes.has(r.code));
     return {
       name: p.name,
+      alts: p.alts ?? [], // bundled characters (CONFIG.ALTS), merged upstream
       count: p.count,
       pct: total ? Math.round((p.count / total) * 100) : 0,
       lastTs: p.lastTs,

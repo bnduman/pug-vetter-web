@@ -27,6 +27,53 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!, $page: Int!)
 const slugify = (realm) =>
   (realm ?? "").trim().toLowerCase().replace(/'/g, "").replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "");
 
+// --- alt bundling (CONFIG.ALTS: MAIN -> [alts...]) --------------------------
+// WCL has no public character->account link (Character.claimed is permission-
+// gated), so same-person characters are declared by hand in config.
+
+/** The configured main for a character name; the name itself if not an alt. */
+export function resolveMain(name, alts = CONFIG.ALTS) {
+  const key = (name ?? "").toLowerCase();
+  for (const [main, altNames] of Object.entries(alts ?? {})) {
+    if ((altNames ?? []).some((a) => a.toLowerCase() === key)) return main;
+  }
+  return name;
+}
+
+/** Merge alt entries of an attendance `players` map into their mains, in
+ *  place. Raids are deduped by report code (a player can appear in the same
+ *  report on two characters); the main gains an `alts` name list. */
+export function mergeAlts(players, alts = CONFIG.ALTS) {
+  for (const [main, altNames] of Object.entries(alts ?? {})) {
+    const mainKey = main.toLowerCase();
+    let entry = players[mainKey];
+    const absorbed = [];
+    for (const altName of altNames ?? []) {
+      const altKey = altName.toLowerCase();
+      const alt = altKey === mainKey ? null : players[altKey];
+      if (!alt) continue;
+      if (!entry) entry = players[mainKey] = { name: main, count: 0, lastTs: 0, raids: [] };
+      entry.raids.push(...alt.raids);
+      absorbed.push(alt.name);
+      delete players[altKey];
+    }
+    if (!absorbed.length) continue;
+    const seen = new Set();
+    entry.raids = entry.raids
+      .filter((r) => {
+        const k = r.code ?? `ts:${r.ts}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a, b) => b.ts - a.ts);
+    entry.count = entry.raids.length;
+    entry.lastTs = entry.raids[0]?.ts ?? entry.lastTs;
+    entry.alts = [...(entry.alts ?? []), ...absorbed];
+  }
+  return players;
+}
+
 // WCL's attendance endpoint intermittently hangs past our 20s timeout
 // (observed 2026-07-16 while switching guilds: identical queries alternated
 // between ~400ms and timeouts for ~10 minutes). One retry rescues those runs;
@@ -49,8 +96,13 @@ export async function getAttendanceMap() {
   if (!CONFIG.GUILD_NAME) return null;
   // "att2": key versioned; bump when the cached shape changes.
   const key = `guild_att2/${CONFIG.GUILD_REGION}/${slugify(CONFIG.GUILD_REALM)}/${CONFIG.GUILD_NAME.toLowerCase()}`;
+  // The RAW map is what's cached; alts merge on every return so edits to
+  // CONFIG.ALTS take effect without waiting out the attendance TTL.
   const cached = cacheGet(key, CONFIG.ATTENDANCE_TTL_SECONDS);
-  if (cached) return cached;
+  if (cached) {
+    mergeAlts(cached.players);
+    return cached;
+  }
 
   const vars = {
     name: CONFIG.GUILD_NAME,
@@ -96,7 +148,8 @@ export async function getAttendanceMap() {
     entry.raids.sort((a, b) => b.ts - a.ts); // newest first
   }
   const result = { guildName, reportsScanned, players };
-  cacheSet(key, result);
+  cacheSet(key, result); // raw, pre-merge (see cache note above)
+  mergeAlts(players);
   return result;
 }
 
@@ -109,7 +162,8 @@ export async function getCoraidMap() {
   const map = await getAttendanceMap();
   if (!map) return null;
 
-  const meKey = (CONFIG.ME_NAME || "").toLowerCase();
+  // ME_NAME may itself be an alt — measure against the merged main entry.
+  const meKey = resolveMain(CONFIG.ME_NAME || "").toLowerCase();
   const me = meKey ? map.players[meKey] : null;
 
   // myCodes = the reports to measure against. null = "all reports" (guild
