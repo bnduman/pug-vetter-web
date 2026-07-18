@@ -180,7 +180,19 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
   const rep = meta.reportData?.report;
   const fights = rep?.fights ?? [];
   if (!fights.length) {
-    return { code, title: rep?.title ?? code, fights: [], players: [], raidSize: 0 };
+    // Same shape as a real card (cardHtml dereferences coverage) — just empty.
+    // Deliberately NOT cached: a fight-less report is usually tonight's log
+    // still uploading, and a re-Load should see fights as they land.
+    return {
+      code,
+      title: rep?.title ?? code,
+      zone: rep?.zone?.name ?? null,
+      ts: rep?.startTime ?? 0,
+      fights: [],
+      players: [],
+      raidSize: 0,
+      coverage: { tracked: 0, alwaysFlasked: 0, alwaysFed: 0, enchanted: 0, gearCovered: 0 },
+    };
   }
   const fightIDs = fights.map((f) => f.id);
   const start = Math.min(...fights.map((f) => f.startTime));

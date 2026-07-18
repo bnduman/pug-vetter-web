@@ -11,6 +11,7 @@ import { RULES, lookupRule } from "../js/csi/rules.js";
 import { RULE_SPELL_IDS } from "../js/csi/rule-ids.js";
 import { summarizeFight } from "../js/csi/summary.js";
 import { buildRaidPrep, classifyConsumables, classifyTalents, playerList } from "../js/csi/prep.js";
+import { analyzeEnchants } from "../js/analyze.js";
 
 // --- helpers ---------------------------------------------------------------
 const idxOf = (actors) => new Map(actors.map((a) => [a.id, a]));
@@ -367,4 +368,103 @@ test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering"
   // ordering: tank bucket first, dps last
   assert.equal(r.players[0].role, "tank");
   assert.equal(r.players.at(-1).role, "dps");
+});
+
+// --- regressions for the 2026-07 review fixes -------------------------------
+
+test("parseReportUrl: fight in the query string, and a hash without one", () => {
+  // ?fight=5 lives in url.search (the old regex only matched #fight=/&fight=)
+  assert.equal(
+    parseReportUrl("https://classic.warcraftlogs.com/reports/aBc123Def456Ghi7?fight=5").fightId, 5);
+  // a fight-less hash must not shadow the query's fight param
+  assert.equal(
+    parseReportUrl("https://classic.warcraftlogs.com/reports/aBc123Def456Ghi7?fight=7#type=damage-done").fightId, 7);
+});
+
+test("classifyConsumables: two SAME-type elixirs are not a flask pair", () => {
+  // A fight-window buff table can list a battle elixir replaced mid-fight by
+  // another battle elixir — that's still no guardian elixir.
+  const twoBattle = classifyConsumables([
+    { name: "Elixir of Major Agility" }, { name: "Elixir of the Mongoose" },
+  ]);
+  assert.equal(twoBattle.flaskReady, false);
+  const twoGuardian = classifyConsumables([
+    { name: "Elixir of Major Fortitude" }, { name: "Elixir of Ironskin" },
+  ]);
+  assert.equal(twoGuardian.flaskReady, false);
+  // ...but a known half + an unknown-name elixir still counts as a pair
+  const mixed = classifyConsumables([
+    { name: "Elixir of Major Agility" }, { name: "Elixir of Mystery" },
+  ]);
+  assert.equal(mixed.flaskReady, true);
+});
+
+test("death recap: a defensive the victim cast ON someone else doesn't count", () => {
+  const f = fight([
+    { timestamp: 52000, type: "cast", sourceId: "t1", targetId: "t2", abilityName: "Lay on Hands" },
+    dmg(54000, "t1", "Melee", 9000), death(55000, "t1"),
+  ]);
+  const s = summarizeFight(f, idxOf([
+    { id: "t1", name: "Pally", role: "tank" }, { id: "t2", name: "Cotank", role: "tank" },
+  ]));
+  const d = s.deaths[0];
+  assert.equal(d.defensiveUsed, false);
+  assert.match(d.notes.join(" | "), /No emergency defensive/);
+});
+
+test("death recap: HoT-style defensive shows once, not once per heal tick", () => {
+  const f = fight([
+    cast(52000, "t1", "Frenzied Regeneration"),
+    heal(52500, "t1", "t1", "Frenzied Regeneration", 800, 30),
+    heal(53500, "t1", "t1", "Frenzied Regeneration", 800, 35),
+    dmg(54000, "t1", "Melee", 9000), death(55000, "t1"),
+  ]);
+  const s = summarizeFight(f, idxOf([{ id: "t1", name: "Bear", role: "tank" }]));
+  const d = s.deaths[0];
+  assert.equal(d.timeline.filter((e) => e.kind === "cooldown").length, 1);
+  assert.equal(d.defensives.length, 1);
+  assert.equal(d.defensiveUsed, true); // the (deduped) defensive still counts
+});
+
+test("analyzeEnchants: the enchanted snapshot of the same item wins across fights", () => {
+  // Same item id twice: unenchanted in an early fight, enchanted later.
+  const item = { id: 30, slot: 0, itemLevel: 120, quality: 4 };
+  const en = analyzeEnchants([{ ...item }, { ...item, permanentEnchant: 3002 }]);
+  const head = en.slots.find((s) => s.slot === "Head");
+  assert.equal(head.status, "enchanted");
+  assert.equal(en.missing_required, 0);
+  // and the gemmed snapshot wins on gem count
+  const wrist = { id: 31, slot: 8, itemLevel: 115, quality: 4 };
+  const en2 = analyzeEnchants([
+    { ...wrist, permanentEnchant: 3002, gems: [] },
+    { ...wrist, permanentEnchant: 3002, gems: [{ id: 1 }] },
+  ]);
+  assert.equal(en2.gems_total, 1);
+});
+
+test("death recap: live-shaped self-cast (targetID -1) still counts as a defensive", () => {
+  // On live WCL data, self-buff casts (Shield Wall, Ice Block, Barkskin…)
+  // carry targetID -1 ("environment"), which normalizes to the string "-1" —
+  // verified against a real SSC report. It must count as the victim's own use.
+  const f = fight([
+    { timestamp: 52000, type: "cast", sourceId: "t1", targetId: "-1", abilityName: "Shield Wall" },
+    dmg(54000, "t1", "Melee", 9000), death(55000, "t1"),
+  ]);
+  const s = summarizeFight(f, idxOf([{ id: "t1", name: "Tank", role: "tank" }]));
+  const d = s.deaths[0];
+  assert.equal(d.defensiveUsed, true);
+  assert.ok(!/unmitigated/.test(s.primaryCause.text), s.primaryCause.text);
+});
+
+test("death recap: re-use of the same defensive after a gap is a second entry", () => {
+  // PW:S at -18s, shield breaks, re-shield at -2s (Weakened Soul is 15s):
+  // both uses must appear — only cast+ticks within a short chain collapse.
+  const ps = (t) => ({ timestamp: t, type: "cast", sourceId: "p1", targetId: "t1", abilityName: "Power Word: Shield" });
+  const f = fight([ps(42000), ps(58000), dmg(59000, "t1", "Melee", 9000), death(60000, "t1")]);
+  const s = summarizeFight(f, idxOf([
+    { id: "t1", name: "Tank", role: "tank" }, { id: "p1", name: "Priesty", role: "healer" },
+  ]));
+  const cds = s.deaths[0].timeline.filter((e) => e.kind === "cooldown");
+  assert.equal(cds.length, 2);
+  assert.equal(s.deaths[0].defensives.length, 2);
 });

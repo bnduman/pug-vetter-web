@@ -25,7 +25,9 @@ document.getElementById("tabs").addEventListener("keydown", (e) => {
   e.preventDefault();
   const next = list[(i + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length];
   next.focus();
-  activate(next.dataset.tab);
+  // Activate via click() so per-tab click listeners (e.g. the Officer tab's
+  // lazy data load) fire for keyboard users too.
+  next.click();
 });
 
 activate("vetter");

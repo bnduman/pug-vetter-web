@@ -4,7 +4,7 @@
 
 const BARE_CODE = /^[a-zA-Z0-9]{12,}$/;
 const REPORT_PATH = /\/reports\/([a-zA-Z0-9]+)/;
-const FIGHT_FRAGMENT = /[#&]fight=(last|\d+)/;
+const FIGHT_FRAGMENT = /[#&?]fight=(last|\d+)/;
 
 export function parseReportUrl(input) {
   const trimmed = (input || "").trim();
@@ -28,7 +28,9 @@ export function parseReportUrl(input) {
   const pathMatch = url.pathname.match(REPORT_PATH);
   if (!pathMatch) return null;
 
-  const fightMatch = (url.hash || url.search).match(FIGHT_FRAGMENT);
+  // Check hash and query independently: "#type=damage-done?fight=5"-style URLs
+  // carry a hash without a fight, and "?fight=5" lives only in the query.
+  const fightMatch = url.hash.match(FIGHT_FRAGMENT) ?? url.search.match(FIGHT_FRAGMENT);
   let fightId;
   if (fightMatch) fightId = fightMatch[1] === "last" ? "last" : Number(fightMatch[1]);
 

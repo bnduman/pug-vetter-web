@@ -41,14 +41,23 @@ async function lookup(name) {
   lookupInFlight = true;
   setStatus(`Looking up ${name}…`);
   btn.disabled = true;
-  // Re-searching someone moves their card back to the top (fresh prepend).
-  feedEl.querySelector(`[data-card="${CSS.escape(name.toLowerCase())}"]`)?.remove();
+  // Re-searching someone moves their card back to the top — but only once the
+  // fresh lookup actually delivers. Removing the old card up front would lose
+  // it for nothing when the lookup fails (rate limit, timeout, network).
+  let replacedOld = false;
+  const showCard = (data) => {
+    if (!replacedOld) {
+      replacedOld = true;
+      feedEl.querySelector(`[data-card="${CSS.escape(name.toLowerCase())}"]`)?.remove();
+    }
+    addCard(data);
+  };
   try {
     // The scorecard renders as soon as the first query lands (gearPending);
     // the same card is then updated in place when the gear scan finishes.
-    const data = await vet(name, { onScorecard: (partial) => { setStatus(""); addCard(partial); } });
+    const data = await vet(name, { onScorecard: (partial) => { setStatus(""); showCard(partial); } });
     setStatus("");
-    addCard(data);
+    showCard(data);
   } catch (err) {
     setStatus(err instanceof WCLError ? err.message : `Request failed: ${err}`, true);
   } finally {
@@ -126,11 +135,23 @@ async function fillGuildLine(card, charName) {
   }
 }
 
+// Warcraft Logs + Classic Armory profile links (URLs are built in vet.js).
+function renderLinks(data) {
+  if (!data.wclUrl && !data.armoryUrl) return "";
+  const link = (href, label) =>
+    `<a href="${esc(href)}" target="_blank" rel="noopener">${label} ↗</a>`;
+  return `<div class="ext-links">
+    ${data.wclUrl ? link(data.wclUrl, "📊 Warcraft Logs") : ""}
+    ${data.armoryUrl ? link(data.armoryUrl, "🛡️ Armory") : ""}
+  </div>`;
+}
+
 function renderNoData(data) {
   return `<div class="no-data" style="border:none;padding:0">
     <b>No logs found</b> for <b>${esc(data.name)}</b> on ${esc(data.realm)} (${esc(data.region)}).<br>
     They may simply have never been logged on Warcraft Logs &mdash; this is not proof they haven't raided.
     Check the spelling of the name.
+    ${renderLinks(data)}
   </div>`;
 }
 
@@ -182,6 +203,7 @@ function renderResult(data) {
     </div>
     <div class="meta">${esc(data.realm)} · ${esc(data.region)} &nbsp;·&nbsp; last logged raid: ${lastLog}
       &nbsp;·&nbsp; raids with a kill: ${totalCleared}/${raids.length}${multi ? " &nbsp;·&nbsp; dual-spec: showing both gear sets" : ""}</div>
+    ${renderLinks(data)}
     ${CONFIG.GUILD_NAME ? '<div class="meta guild-line">checking guild raid history…</div>' : ""}
 
     <div class="section-title">Raid clears &amp; best perf. average</div>

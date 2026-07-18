@@ -24,6 +24,21 @@ function slugifyRealm(realm) {
     .replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "");
 }
 
+// External profile links for a character, built from the locked realm/region.
+// WCL: classic.warcraftlogs.com/character/<region>/<realm>/<name>
+// Armory: classic-armory.org/character/<region>/<flavor>/<realm>/<name>
+// (URL formats verified against both live sites, incl. non-ASCII names.)
+function characterLinks(region, realm, name) {
+  const reg = (region ?? "").toLowerCase();
+  const slug = slugifyRealm(realm);
+  const nm = encodeURIComponent(name);
+  return {
+    wclUrl: `https://classic.warcraftlogs.com/character/${reg}/${slug}/${nm}`,
+    armoryUrl:
+      `https://classic-armory.org/character/${reg}/${CONFIG.ARMORY_FLAVOR}/${slug}/${nm}`,
+  };
+}
+
 function buildCharacterQuery(zoneIds) {
   const aliases = zoneIds.map((zid) => `      z${zid}: zoneRankings(zoneID: ${zid})`).join("\n");
   return `
@@ -121,8 +136,8 @@ async function buildGearSets(reports, charName, className, multi) {
 export async function vet(name, { onScorecard } = {}) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  // "vet6" — cache key versioned; bump when the result shape/values change.
-  const key = `vet6/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet7" — cache key versioned; bump when the result shape/values change.
+  const key = `vet7/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 
@@ -134,7 +149,7 @@ export async function vet(name, { onScorecard } = {}) {
 
   const char = data.characterData?.character;
   if (!char) {
-    const result = { found: false, name, realm, region };
+    const result = { found: false, name, realm, region, ...characterLinks(region, realm, name) };
     cacheSet(key, result);
     return result;
   }
@@ -156,6 +171,7 @@ export async function vet(name, { onScorecard } = {}) {
     name: char.name ?? name,
     realm,
     region,
+    ...characterLinks(region, realm, char.name ?? name),
     class: className,
     classColor: CLASS_COLORS[className] ?? "#e8e9ee",
     classID: char.classID ?? null,

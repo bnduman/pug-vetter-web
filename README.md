@@ -1,18 +1,44 @@
 # PuG Vetter (web)
 
-Static, **fully client-side** PuG vetting tool for WoW **Classic Anniversary**
-raid leaders. Type a character name and get, at a glance:
+Static, **fully client-side** raid-leader console for WoW **Classic
+Anniversary** (TBC). Three tabs, no server, no build step — plain HTML + ES
+modules talking straight to the [Warcraft Logs](https://classic.warcraftlogs.com)
+v2 API (it sends CORS headers, so this works from any static host, e.g.
+**GitHub Pages**).
 
-- **Raid clears** (boss kill counts per current raid)
-- **Best performance average** per raid, colour-coded like Warcraft Logs
-- **Enchant check** with **TBC-correct enchant names**, gem counts, avg ilvl
-- **Guild history** — how many times they've raided with *your* guild before
-  (from WCL guild attendance), plus a **Guild regulars** list of repeat raiders
+## ⚔️ PuG Vetter
+
+Type a character name and get, at a glance:
+
+- **Raid clears** (boss kill counts per current raid) and **best performance
+  average** per raid, colour-coded like Warcraft Logs
+- **GearScore** (same calculation as classic-armory.org), with **both gear
+  sets** for dual-role players (tank + dps)
+- **Enchant check** with **TBC-correct enchant names**, gem counts, avg ilvl,
+  Wowhead links for every item/gem/enchant
+- **Warcraft Logs + Armory links** on every card, straight to the player's
+  profile pages
+- **"Raided with me"** — how many of *your* logged raids each player attended
+  (relative to `ME_NAME`), plus a **My regulars** list of repeat co-raiders.
+  Same-person characters are bundled via `ALTS` in config.
 - **Roster builder** — add vetted players, drag them into groups of 5
 
-No server, no build step — plain HTML + ES modules. The browser talks straight
-to the [Warcraft Logs](https://classic.warcraftlogs.com) v2 API (it sends CORS
-headers, so this works from any static host, e.g. **GitHub Pages**).
+## 🔍 Wipe Autopsy
+
+Paste a WCL report URL and get a per-wipe diagnosis: a 20-second death-recap
+timeline (healer sources, HP% per event, killing blow, defensive cooldowns),
+boss-mechanic blame via a spell-ID catalogue harvested from live logs, a
+primary-cause verdict, per-pull raid-prep (flask/elixir-pair/food + enchants),
+and a copy-for-Discord summary.
+
+## 🛡️ Officer
+
+Guild tools (uses `GUILD_NAME` from config): pick any of the guild's recent
+logs for a **raid-prep report card** — per raider spec, per-pull flask/food,
+enchant gaps, Discord shame-list export — plus an **attendance roster** with
+percentages, streaks, and "fading regular" warnings.
+
+---
 
 This is the static sibling of [pug-vetter](https://github.com/bnduman/pug-vetter)
 (the Python/Flask version, which also holds the enchant-name refresh pipeline).
@@ -31,17 +57,19 @@ don't load from `file://`, so serve the folder with any static server:
 python -m http.server 8090      # then open http://localhost:8090
 ```
 
-Live smoke test of the lookup logic (Node 18+):
+## Tests (Node 18+)
 
 ```bash
-node test/smoke.mjs [name]
+npm test                  # offline unit tests (autopsy engine + officer math)
+node test/smoke.mjs [name]  # live smoke test of the lookup logic
 ```
 
 ## Fork it for your own realm
 
 1. Create a Warcraft Logs API client at <https://www.warcraftlogs.com/api/clients/>
    — leave **"Public Client" unchecked** (you need a client secret).
-2. Edit [js/config.js](js/config.js): your client id/secret, realm, region.
+2. Edit [js/config.js](js/config.js): your client id/secret, realm, region,
+   guild, `ME_NAME` (your main, for "raided with me"), and `ALTS`.
 3. Enable GitHub Pages: repo **Settings → Pages → Deploy from a branch →
    `main` / `/ (root)`**.
 
@@ -60,5 +88,7 @@ node test/smoke.mjs [name]
   magnitudes, renamed stats); [js/enchant-names.js](js/enchant-names.js) maps
   enchant IDs to the real in-game names from the Anniversary client database.
 - **When the realms advance to Wrath**, bump `CURRENT_EXPANSION_ID` in
-  [js/config.js](js/config.js) (1001 → 1002). New raid tiers within an
-  expansion appear automatically.
+  [js/config.js](js/config.js) (1001 → 1002) and `ARMORY_FLAVOR`
+  (`tbc-anniversary` → the WotLK flavor). New raid tiers within an expansion
+  appear automatically. The boss-mechanic catalogue regenerates with
+  `npm run gen:rule-ids`.

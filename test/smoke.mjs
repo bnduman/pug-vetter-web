@@ -10,6 +10,8 @@ const name = explicitName ?? "sahmeran";
 const d = await vet(name);
 
 console.log(`${d.name} @ ${d.realm}-${d.region} | found=${d.found}`);
+console.log(`WCL:    ${d.wclUrl}`);
+console.log(`Armory: ${d.armoryUrl}`);
 if (!d.found) {
   // A missing default character means the lookup itself is broken -> fail.
   // An explicitly-requested name that doesn't exist is a valid outcome.
@@ -44,6 +46,12 @@ if (d.gear) {
 
 // Hard assertions: the scorecard shape the UI depends on.
 const fail = (msg) => { console.error("SMOKE FAIL:", msg); process.exit(1); };
+if (!/^https:\/\/classic\.warcraftlogs\.com\/character\/[a-z]+\/[a-z0-9-]+\/.+/.test(d.wclUrl || "")) {
+  fail(`bad WCL profile url: ${d.wclUrl}`);
+}
+if (!/^https:\/\/classic-armory\.org\/character\/[a-z]+\/[a-z0-9-]+\/[a-z0-9-]+\/.+/.test(d.armoryUrl || "")) {
+  fail(`bad Armory profile url: ${d.armoryUrl}`);
+}
 if (!Array.isArray(d.raids) || !d.raids.length) fail("no raids array");
 for (const r of d.raids) {
   for (const k of ["name", "cleared", "total", "best_parse", "tier", "color"]) {

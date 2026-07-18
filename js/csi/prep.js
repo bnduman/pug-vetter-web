@@ -51,6 +51,7 @@ export function classifyConsumables(auras) {
   const elixirs = [];
   let battle = null;
   let guardian = null;
+  let unknownElixirs = 0;
   let food = false;
   let drums = false;
   for (const a of auras) {
@@ -64,12 +65,16 @@ export function classifyConsumables(auras) {
       const key = n.toLowerCase();
       if (BATTLE_ELIXIRS.has(key)) battle = n;
       else if (GUARDIAN_ELIXIRS.has(key)) guardian = n;
+      else unknownElixirs += 1;
     }
   }
-  // Flask-equivalent: a flask, or a battle+guardian pair. Two active elixirs
-  // are always such a pair (the game caps one of each), so 2+ counts even when
-  // a name isn't in our lists.
-  const flaskReady = !!flask || (!!battle && !!guardian) || elixirs.length >= 2;
+  // Flask-equivalent: a flask, or a battle+guardian pair. Elixirs whose names
+  // aren't in our lists still count toward a pair (the game caps one active
+  // elixir of each type, so two SIMULTANEOUS elixirs must be such a pair) —
+  // but two elixirs we positively know are the same type are NOT a pair: fight-
+  // window buff tables can list a battle elixir replaced by another mid-fight.
+  const flaskReady = !!flask || (!!battle && !!guardian) ||
+    unknownElixirs >= 2 || (unknownElixirs >= 1 && (!!battle || !!guardian));
   return { unknown: false, flask, elixirs, battle, guardian, food, drums, flaskReady };
 }
 

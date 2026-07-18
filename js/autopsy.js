@@ -178,9 +178,14 @@ function prepCard(prep) {
   const n = prep.raidSize;
 
   const cov = (emoji, label, have, total, title) => {
-    const pct = total ? Math.round((have / total) * 100) : 0;
-    const cls = total && have >= total ? "csi-ok" : pct >= 70 ? "csi-mid" : "csi-bad";
-    return `<span class="csi-cov ${cls}" style="--p:${pct}%"${title ? ` title="${esc(title)}"` : ""}>${emoji} ${label} <b>${have}/${total || 0}</b></span>`;
+    // No players with data at all -> unknown, not a red 0/0 ("unknown is
+    // never blamed" — same rule as the per-player pills).
+    if (!total) {
+      return `<span class="csi-cov csi-dim" title="No data available">${emoji} ${label} <b>no data</b></span>`;
+    }
+    const pct = Math.round((have / total) * 100);
+    const cls = have >= total ? "csi-ok" : pct >= 70 ? "csi-mid" : "csi-bad";
+    return `<span class="csi-cov ${cls}" style="--p:${pct}%"${title ? ` title="${esc(title)}"` : ""}>${emoji} ${label} <b>${have}/${total}</b></span>`;
   };
   const cc = c.consumablesCovered ?? n;
   const coverage = `<div class="csi-cov-row">
@@ -228,9 +233,9 @@ function prepRow(p) {
       flaskPill = pill("ok", "🧪 Flask", cons.flask);
     } else if (cons.flaskReady) {
       flaskPill = pill("ok", "🧴 Elixir pair", cons.elixirs.join(" + "));
-    } else if (cons.elixirs.length === 1) {
+    } else if (cons.elixirs.length >= 1) {
       const missingHalf = cons.battle ? "guardian" : cons.guardian ? "battle" : "second";
-      flaskPill = pill("mid", `🧴 no ${missingHalf}`, `${cons.elixirs[0]} — add a ${missingHalf} elixir (or flask)`);
+      flaskPill = pill("mid", `🧴 no ${missingHalf}`, `${cons.elixirs.join(" + ")} — add a ${missingHalf} elixir (or flask)`);
     } else {
       flaskPill = pill("bad", "🧪 none", "No flask or elixirs");
     }

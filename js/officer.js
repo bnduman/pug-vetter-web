@@ -15,6 +15,7 @@ const root = document.getElementById("officer");
 let reports = null;   // guild report picker entries
 let roster = null;    // buildRoster() output
 let card = null;      // current report card
+let pickedCode = null; // dropdown choice — survives re-renders before "Load"
 let showEveryone = false;
 const MIN_RAIDS = 3;  // roster filter: hide one-off pugs by default
 
@@ -52,8 +53,9 @@ function view(error) {
       <p class="sub">Set <code>GUILD_NAME</code> in js/config.js to enable the officer view.</p></div>`;
     return;
   }
+  const selectedCode = pickedCode ?? card?.code;
   const options = (reports ?? []).map((r) =>
-    `<option value="${esc(r.code)}"${card?.code === r.code ? " selected" : ""}>${esc(r.title)} · ${dateOf(r.ts)}</option>`).join("");
+    `<option value="${esc(r.code)}"${selectedCode === r.code ? " selected" : ""}>${esc(r.title)} · ${dateOf(r.ts)}</option>`).join("");
 
   root.innerHTML = `
     <div class="csi-report">
@@ -75,6 +77,10 @@ function view(error) {
 }
 
 function cardHtml(c) {
+  if (!c.fights.length) {
+    return `<p class="sub">「${esc(c.title)}」 has no boss pulls — nothing to grade.
+      Trash-only and non-raid logs can't produce a report card.</p>`;
+  }
   const kills = c.fights.filter((f) => f.kill).length;
   const cov = c.coverage;
   const chip = (label, val) =>
@@ -101,7 +107,7 @@ function cardHtml(c) {
   return `
     <div class="csi-stats">
       ${chip("Raiders", c.raidSize)}
-      ${chip("Bosses", `${kills}/${c.fights.length}`)}
+      ${chip("Kills", `${kills}/${c.fights.length} pulls`)}
       ${chip("Always flasked", `${cov.alwaysFlasked}/${cov.tracked}`)}
       ${chip("Always fed", `${cov.alwaysFed}/${cov.tracked}`)}
       ${chip("Fully enchanted", `${cov.enchanted}/${cov.gearCovered}`)}
@@ -195,8 +201,11 @@ root.addEventListener("change", (e) => {
   if (e.target.id === "off-all") {
     showEveryone = e.target.checked;
     view();
+  } else if (e.target.id === "off-report") {
+    pickedCode = e.target.value; // keep the choice across re-renders
   }
 });
 
-// Lazy: load guild data the first time the tab is opened.
+// Lazy: load guild data the first time the tab is opened (click OR keyboard —
+// the tablist's arrow-key handler activates tabs via .click()).
 document.getElementById("tab-officer")?.addEventListener("click", init);

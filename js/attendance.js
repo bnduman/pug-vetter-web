@@ -94,8 +94,10 @@ async function attendancePage(vars) {
 // or null when no guild is configured / the guild can't be found.
 export async function getAttendanceMap() {
   if (!CONFIG.GUILD_NAME) return null;
-  // "att2": key versioned; bump when the cached shape changes.
-  const key = `guild_att2/${CONFIG.GUILD_REGION}/${slugify(CONFIG.GUILD_REALM)}/${CONFIG.GUILD_NAME.toLowerCase()}`;
+  // "att2": key versioned; bump when the cached shape changes. The page count
+  // is part of the key so raising ATTENDANCE_MAX_PAGES takes effect
+  // immediately instead of serving the shallower cached map for up to 6h.
+  const key = `guild_att2/${CONFIG.GUILD_REGION}/${slugify(CONFIG.GUILD_REALM)}/${CONFIG.GUILD_NAME.toLowerCase()}/p${CONFIG.ATTENDANCE_MAX_PAGES}`;
   // The RAW map is what's cached; alts merge on every return so edits to
   // CONFIG.ALTS take effect without waiting out the attendance TTL.
   const cached = cacheGet(key, CONFIG.ATTENDANCE_TTL_SECONDS);

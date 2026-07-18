@@ -64,20 +64,35 @@ function analyzeDeath(death, fight, idx) {
   let lastDamage;
   let lastDamageAt; // timestamp of the killing-blow candidate
   const defensives = []; // emergency cooldowns in the window: {ms, ability, source?}
+  // Collapse a defensive's cast + its HoT heal ticks (Frenzied Regen, Lay on
+  // Hands) into ONE use, while keeping genuinely distinct uses (a priest
+  // re-shielding after Weakened Soul expires) as separate entries: events with
+  // the same ability+caster chain together while <= this gap apart.
+  const DEFENSIVE_CHAIN_MS = 6000;
+  const defensiveLastSeen = new Map(); // "ability|caster" -> last event timestamp
 
   for (const e of fight.events) {
     if (!inWindow(e)) continue;
     const name = e.abilityName ?? "Unknown";
     const ms = t - e.timestamp; // ms before death
 
-    if (
-      (e.sourceId === victimId || e.targetId === victimId) &&
-      EMERGENCY_DEFENSIVES.includes(name)
-    ) {
-      // Attribute externals (a priest's PW:S / Pain Suppression) to the caster.
-      const source = e.sourceId && e.sourceId !== victimId ? idx.get(e.sourceId)?.name : undefined;
-      defensives.push({ ms, ability: name, source });
-      timeline.push({ ms, kind: "cooldown", ability: name, source });
+    // A defensive counts for the victim only when the victim RECEIVED it —
+    // self-cast, or an external like a priest's Pain Suppression. One the
+    // victim cast on someone ELSE is not protecting them. Live WCL self-buff
+    // casts (Shield Wall, Ice Block…) carry targetID -1 ("environment"), so a
+    // victim-sourced event whose target isn't a known actor is a self-cast.
+    const protectedVictim = e.targetId === victimId ||
+      (e.sourceId === victimId && (e.targetId == null || !idx.get(e.targetId)));
+    if (protectedVictim && EMERGENCY_DEFENSIVES.includes(name)) {
+      const chainKey = `${name}|${e.sourceId ?? "?"}`;
+      const last = defensiveLastSeen.get(chainKey);
+      defensiveLastSeen.set(chainKey, e.timestamp);
+      if (last === undefined || e.timestamp - last > DEFENSIVE_CHAIN_MS) {
+        // Attribute externals (a priest's PW:S / Pain Suppression) to the caster.
+        const source = e.sourceId && e.sourceId !== victimId ? idx.get(e.sourceId)?.name : undefined;
+        defensives.push({ ms, ability: name, source });
+        timeline.push({ ms, kind: "cooldown", ability: name, source });
+      }
     }
 
     if (e.targetId !== victimId) continue;

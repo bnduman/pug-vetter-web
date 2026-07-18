@@ -27,6 +27,12 @@ export const CONFIG = {
   // Aggregate / non-raid zones to skip when auto-detecting.
   EXCLUDE_ZONE_PATTERNS: ["Complete Raid", "Heroic Dungeon", "Challenge Mode"],
 
+  // classic-armory.org "flavor" segment for the per-character Armory links
+  // (https://classic-armory.org/character/<region>/<flavor>/<realm>/<name>).
+  // Tracks the realms' current content — bump alongside CURRENT_EXPANSION_ID
+  // when the Anniversary realms advance (e.g. to "wotlk-anniversary").
+  ARMORY_FLAVOR: "tbc-anniversary",
+
   // Your guild — the source of raid logs for the "raided with me" check
   // (uses WCL guild attendance). Leave GUILD_NAME empty ("") to hide it.
   GUILD_NAME: "SEND IT",

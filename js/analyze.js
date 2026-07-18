@@ -114,6 +114,12 @@ export function findPlayer(playerDetails, charName) {
 // across fights can fabricate a set the player never actually wore together,
 // inflating GearScore (e.g. a one-off weapon/trinket swap). Ties break toward
 // higher item level.
+// Enchants and gems are only ever ADDED during a raid night (they can be
+// replaced, never removed), so when the same item shows different states
+// across fights, the fullest snapshot is the truest.
+const snapshotScore = (item) =>
+  (item.permanentEnchant ? 10 : 0) + (item.gems?.length ?? 0);
+
 function gearBySlot(gear) {
   const perSlot = new Map(); // slot -> Map(itemId -> { item, count })
   for (const item of gear ?? []) {
@@ -122,6 +128,7 @@ function gearBySlot(gear) {
     const k = String(item.id ?? 0);
     const entry = counts.get(k) ?? { item, count: 0 };
     entry.count += 1;
+    if (snapshotScore(item) > snapshotScore(entry.item)) entry.item = item;
     counts.set(k, entry);
     perSlot.set(item.slot, counts);
   }
