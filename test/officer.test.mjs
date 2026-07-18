@@ -131,6 +131,17 @@ test("buildRoster: pct, streak, and fading detection", () => {
   assert.equal(newpug.streak, 1);
 });
 
+test("buildRoster: limit grades against only the newest N reports", () => {
+  const { totalReports, rows } = buildRoster(attMapOf(), { limit: 3 });
+  assert.equal(totalReports, 3); // r5, r4, r3
+  // Fader attended only r1+r2 -> outside the window, not listed at all
+  assert.deepEqual(rows.map((r) => r.name), ["Steady", "Newpug"]);
+  const steady = rows[0];
+  assert.equal(steady.count, 3); // clipped from 5 to the window
+  assert.equal(steady.pct, 100);
+  assert.equal(rows[1].count, 1); // Newpug: r5 only
+});
+
 test("buildRoster: a regular who missed the last 3 reports is fading", () => {
   const map = attMapOf();
   map.players.fader.count = 3;

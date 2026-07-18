@@ -153,7 +153,7 @@ async function init() {
   try {
     const [reportList, attMap] = await Promise.all([listGuildReports(20), getAttendanceMap()]);
     reports = reportList ?? [];
-    roster = attMap ? buildRoster(attMap) : null;
+    roster = attMap ? buildRoster(attMap, { limit: CONFIG.OFFICER_ROSTER_REPORTS }) : null;
     view(attMap ? undefined : `Guild "${CONFIG.GUILD_NAME}" was not found on Warcraft Logs.`);
   } catch (e) {
     initStarted = false; // allow retry on next tab open

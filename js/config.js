@@ -47,7 +47,11 @@ export const CONFIG = {
   // has no public character->account link, so this is maintained by hand.
   ALTS: {
     Sahmeran: ["Hayvann"],
+    Shynead: ["Shynad"],
   },
+  // How many of the newest guild reports the officer attendance roster
+  // grades against ("attended 12 of the last 20"). 0 = all scanned reports.
+  OFFICER_ROSTER_REPORTS: 20,
   // How many attendance pages to scan (25 raids per page).
   ATTENDANCE_MAX_PAGES: 4,
   ATTENDANCE_TTL_SECONDS: 21600, // refresh guild history every 6h

@@ -40,33 +40,40 @@ export function consumablesByFight(ciRows) {
 
 /** -> { totalReports, reports:[{code,ts,zone}] newest-first, rows:[...] }.
  *  A row: { name, count, pct, lastTs, streak, fading }. `fading` = has real
- *  history (>= max(3, 20% of reports)) but missed the last `recentWindow`. */
-export function buildRoster(attMap, { recentWindow = 3 } = {}) {
+ *  history (>= max(3, 20% of reports)) but missed the last `recentWindow`.
+ *  `limit` > 0 grades against only the newest N reports: counts, %, and
+ *  membership are all within that window (0 attendance there = not listed). */
+export function buildRoster(attMap, { recentWindow = 3, limit = 0 } = {}) {
   const byCode = new Map();
   for (const p of Object.values(attMap.players)) {
     for (const r of p.raids) if (r.code) byCode.set(r.code, r);
   }
-  const reports = [...byCode.values()].sort((a, b) => b.ts - a.ts);
+  let reports = [...byCode.values()].sort((a, b) => b.ts - a.ts);
+  if (limit > 0) reports = reports.slice(0, limit);
+  const windowCodes = new Set(reports.map((r) => r.code));
   const total = reports.length;
   const historyBar = Math.max(3, Math.ceil(total * 0.2));
 
-  const rows = Object.values(attMap.players).map((p) => {
-    const codes = new Set(p.raids.map((r) => r.code));
+  const rows = Object.values(attMap.players).flatMap((p) => {
+    // raids are newest-first, so [0] is the latest attended in the window
+    const inWindow = p.raids.filter((r) => windowCodes.has(r.code));
+    if (!inWindow.length) return []; // fell out of the graded window entirely
+    const codes = new Set(inWindow.map((r) => r.code));
     let streak = 0;
     for (const r of reports) {
       if (codes.has(r.code)) streak++; else break;
     }
     const missedRecent = reports.slice(0, recentWindow).length === recentWindow
       && reports.slice(0, recentWindow).every((r) => !codes.has(r.code));
-    return {
+    return [{
       name: p.name,
       alts: p.alts ?? [], // bundled characters (CONFIG.ALTS), merged upstream
-      count: p.count,
-      pct: total ? Math.round((p.count / total) * 100) : 0,
-      lastTs: p.lastTs,
+      count: inWindow.length,
+      pct: total ? Math.round((inWindow.length / total) * 100) : 0,
+      lastTs: inWindow[0]?.ts ?? p.lastTs,
       streak,
-      fading: missedRecent && p.count >= historyBar,
-    };
+      fading: missedRecent && inWindow.length >= historyBar,
+    }];
   }).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
   return { totalReports: total, reports, rows };
