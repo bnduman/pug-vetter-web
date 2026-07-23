@@ -30,7 +30,7 @@ function msg(e) {
 
 const dateOf = (ts) => new Date(ts).toISOString().slice(0, 10);
 
-// "flasked on N of M attended pulls" cell; green when perfect, red at <= half.
+// "N of M attended pulls" cell; green when perfect, amber at <= half.
 function ratioCell(perFight, key) {
   if (!perFight || !perFight.attended) {
     return '<td class="dim mono" title="No combat data logged for this player">–</td>';
@@ -39,6 +39,32 @@ function ratioCell(perFight, key) {
   const m = perFight.attended;
   const cls = n === m ? "ok" : n <= m / 2 ? "warn" : "";
   return `<td class="mono ${cls}">${n}/${m}</td>`;
+}
+
+// Shorten a flask/elixir name for the inline label: any flask -> "flask",
+// "Elixir of Draenic Wisdom" -> "Draenic Wisdom", "Spellpower Elixir" -> "Spellpower".
+function shortCons(name) {
+  if (/flask of/i.test(name)) return "flask";
+  return name.replace(/^Elixir of /i, "").replace(/ Elixir$/i, "");
+}
+
+// Consumables cell: counts pulls with ANY flask/elixir (what people mean by
+// "using consumables"), colored by prep tier, with the actual names shown so a
+// lone-elixir raider reads as "0 flasks but running Draenic Wisdom", not blank.
+//   green  - flask-equivalent every pull      amber - some flask/elixir, not always full
+//   red    - no flask/elixir on some pulls
+function consCell(pf) {
+  if (!pf || !pf.attended) {
+    return '<td class="dim mono" title="No combat data logged for this player">–</td>';
+  }
+  const { flaskFights: n, elixirFights: e, attended: m, consumables = [] } = pf;
+  const cls = n === m ? "ok" : e > 0 ? "warn" : "bad";
+  const labels = [...new Set(consumables.map(shortCons))];
+  const label = labels.join(", ") || "nothing";
+  const title = consumables.length
+    ? `flask-equivalent on ${n}/${m} pulls · ran: ${consumables.join(", ")}`
+    : "no flask or elixir on any pull";
+  return `<td class="mono ${cls}" title="${esc(title)}">${e}/${m}<span class="off-cons">${esc(label)}</span></td>`;
 }
 
 // --- screens ---------------------------------------------------------------
@@ -98,7 +124,7 @@ function cardHtml(c) {
       <td><span style="color:${color}">${esc(p.name)}</span> ${ROLE_ICONS[p.role] ?? ""}${altTag}</td>
       <td class="dim">${esc(spec)}</td>
       <td class="mono dim">${p.perFight ? p.perFight.attended : "?"}/${c.fights.length}</td>
-      ${ratioCell(p.perFight, "flaskFights")}
+      ${consCell(p.perFight)}
       ${ratioCell(p.perFight, "foodFights")}
       <td>${ench}</td>
     </tr>`;
@@ -114,12 +140,13 @@ function cardHtml(c) {
     </div>
     <button id="off-copy" class="secondary" type="button">Copy for Discord</button>
     <table class="csi-table">
-      <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Flask/elixirs</th><th>Food</th><th>Enchants</th></tr></thead>
+      <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p class="csi-hint">Flask/elixirs = pulls entered with a flask or a battle+guardian elixir pair,
-      out of the boss pulls each player attended (read from per-pull combat snapshots).
-      Kills and wipes both count — pre-pull prep is the point.</p>`;
+    <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
+      each player attended (from per-pull combat snapshots), with what they ran.
+      <span class="ok">Green</span> = flask or battle+guardian pair every pull;
+      <span class="warn">amber</span> = a single elixir or an inconsistent night; red = nothing.</p>`;
 }
 
 function rosterHtml() {

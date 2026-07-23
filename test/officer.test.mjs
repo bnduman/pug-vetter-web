@@ -8,7 +8,7 @@ import { mergeAlts, resolveMain } from "../js/attendance.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
 
-test("consumablesByFight: counts flask-equivalent and food per attended pull", () => {
+test("consumablesByFight: tracks flask-equivalent, any-elixir, food, and names", () => {
   const flask = { name: "Flask of Relentless Assault" };
   const battle = { name: "Elixir of Major Agility" };
   const guardian = { name: "Elixir of Major Fortitude" };
@@ -20,21 +20,33 @@ test("consumablesByFight: counts flask-equivalent and food per attended pull", (
     // p2: elixir pair on pull 1 (flask-equivalent), naked on pull 2
     { fight: 1, sourceID: 2, auras: [battle, guardian] },
     { fight: 2, sourceID: 2, auras: [] },
-    // p3: single battle elixir is NOT flask-equivalent
+    // p3: single battle elixir — an elixir, but NOT flask-equivalent
     { fight: 1, sourceID: 3, auras: [battle, fed] },
     // junk rows are ignored
     { fight: null, sourceID: 1, auras: [flask] },
     { fight: 2, auras: [flask] },
   ];
   const m = consumablesByFight(rows);
-  assert.deepEqual(m.get(1), { attended: 2, flaskFights: 2, foodFights: 2 });
-  assert.deepEqual(m.get(2), { attended: 2, flaskFights: 1, foodFights: 0 });
-  assert.deepEqual(m.get(3), { attended: 1, flaskFights: 0, foodFights: 1 });
+  assert.deepEqual(m.get(1), {
+    attended: 2, flaskFights: 2, elixirFights: 2, foodFights: 2,
+    consumables: ["Flask of Relentless Assault"],
+  });
+  assert.deepEqual(m.get(2), {
+    attended: 2, flaskFights: 1, elixirFights: 1, foodFights: 0,
+    consumables: ["Elixir of Major Agility", "Elixir of Major Fortitude"],
+  });
+  // the lone-elixir case that was reading as "0/2 = nothing": now elixirFights=1
+  assert.deepEqual(m.get(3), {
+    attended: 1, flaskFights: 0, elixirFights: 1, foodFights: 1,
+    consumables: ["Elixir of Major Agility"],
+  });
 });
 
 test("consumablesByFight: missing auras array counts as an unprepped pull", () => {
   const m = consumablesByFight([{ fight: 1, sourceID: 1 }]);
-  assert.deepEqual(m.get(1), { attended: 1, flaskFights: 0, foodFights: 0 });
+  assert.deepEqual(m.get(1), {
+    attended: 1, flaskFights: 0, elixirFights: 0, foodFights: 0, consumables: [],
+  });
 });
 
 // --- alt bundling --------------------------------------------------------------
@@ -155,24 +167,28 @@ test("buildRoster: a regular who missed the last 3 reports is fading", () => {
 
 // --- discord export ----------------------------------------------------------
 
-test("reportCardToDiscord: worst-first shame lists at <= half of pulls", () => {
+test("reportCardToDiscord: shames 'no consumable', lists lone-elixir separately", () => {
+  const F = (attended, flaskFights, elixirFights, foodFights) =>
+    ({ attended, flaskFights, elixirFights, foodFights });
   const card = {
     title: "<SEND IT> TK+SSC",
     players: [
       // flask ran out for the last pull only — NOT shamed
-      { name: "Good", missingCount: 0, perFight: { attended: 9, flaskFights: 8, foodFights: 9 } },
-      { name: "Cheap", missingCount: 2, perFight: { attended: 9, flaskFights: 4, foodFights: 3 } },
-      { name: "Cheaper", missingCount: 3, perFight: { attended: 8, flaskFights: 0, foodFights: 3 } },
+      { name: "Good", missingCount: 0, perFight: F(9, 8, 8, 9) },
+      // ran nothing on most pulls — the real offense
+      { name: "Cheaper", missingCount: 3, perFight: F(8, 0, 1, 3) },
+      // lone elixir every pull: NOT "no consumable" (elixirFights=9), but flagged partial
+      { name: "Elixdude", missingCount: 0, perFight: F(9, 0, 9, 9) },
       { name: "Ghost", missingCount: 0, perFight: null }, // no combat data -> never shamed
     ],
   };
   const text = reportCardToDiscord(card);
-  assert.match(text, /Flask\/elixirs on half the pulls or less: Cheaper 0\/8, Cheap 4\/9/);
-  assert.match(text, /Food on half the pulls or less: Cheap 3\/9, Cheaper 3\/8/);
-  assert.match(text, /Missing enchants: Cheaper \(3\), Cheap \(2\)/);
-  assert.ok(!text.includes("Good"), "8/9 flask must not be shamed");
-  assert.ok(!text.includes("Ghost 0"), "unknown-data players must not be shamed");
+  assert.match(text, /No flask\/elixir on half the pulls or less: Cheaper 1\/8/);
+  assert.ok(!/No flask\/elixir[^\n]*Elixdude/.test(text), "lone-elixir must not be in the 'no consumable' list");
+  assert.match(text, /Single elixir, no flask\/pair: Elixdude/);
+  assert.ok(!text.includes("Good"), "flask user must not be shamed anywhere");
 
   const clean = reportCardToDiscord({ title: "t", players: [card.players[0]] });
-  assert.match(clean, /Flask\/elixirs on half the pulls or less: nobody 🎉/);
+  assert.match(clean, /No flask\/elixir on half the pulls or less: nobody 🎉/);
+  assert.ok(!clean.includes("Single elixir"), "no partial line when nobody is partial");
 });

@@ -19,19 +19,33 @@ import { buildRaidPrep, classifyConsumables } from "./csi/prep.js";
 // ---------------------------------------------------------------------------
 // Per-fight consumable presence from combatantinfo rows ({fight, sourceID,
 // auras:[{name}]}). classifyConsumables is reused verbatim: seeds carry names.
+//
+// Two tiers are tracked because they answer different officer questions:
+//   flaskFights  - pulls flask-EQUIVALENT (a flask, or a battle+guardian pair)
+//   elixirFights - pulls with ANY flask/elixir at all (superset of the above)
+// A caster running a lone Elixir of Draenic Wisdom every pull is elixirFights
+// == attended but flaskFights == 0: half-prepped, NOT unprepped. `consumables`
+// keeps the distinct flask/elixir names so the card can show what they ran.
 
-/** -> Map player id -> { attended, flaskFights, foodFights } */
+/** -> Map player id ->
+ *   { attended, flaskFights, elixirFights, foodFights, consumables: string[] } */
 export function consumablesByFight(ciRows) {
   const byPlayer = new Map();
   for (const r of ciRows ?? []) {
     if (r.sourceID == null || r.fight == null) continue;
     let p = byPlayer.get(r.sourceID);
-    if (!p) byPlayer.set(r.sourceID, (p = { attended: 0, flaskFights: 0, foodFights: 0 }));
+    if (!p) byPlayer.set(r.sourceID, (p = {
+      attended: 0, flaskFights: 0, elixirFights: 0, foodFights: 0, consumables: new Set(),
+    }));
     p.attended += 1;
     const c = classifyConsumables(r.auras ?? []);
     if (c.flaskReady) p.flaskFights += 1;
+    if (c.flask || c.elixirs.length) p.elixirFights += 1;
     if (c.food) p.foodFights += 1;
+    if (c.flask) p.consumables.add(c.flask);
+    for (const e of c.elixirs) p.consumables.add(e);
   }
+  for (const p of byPlayer.values()) p.consumables = [...p.consumables].sort();
   return byPlayer;
 }
 
@@ -85,18 +99,25 @@ export function buildRoster(attMap, { recentWindow = 3, limit = 0 } = {}) {
 export function reportCardToDiscord(card) {
   const lines = [`**${card.title} — raid prep**`];
   const known = card.players.filter((p) => p.perFight && p.perFight.attended > 0);
-  // Shame threshold: unprepped on half or more of your pulls. A flask that
-  // ran out for the very last boss is not a Discord offense.
+  // Shame threshold: below this fraction of pulls. A flask that ran out for
+  // the very last boss is not a Discord offense.
   const shame = (key) => known
     .filter((p) => p.perFight[key] <= p.perFight.attended / 2)
     .sort((a, b) => (a.perFight[key] / a.perFight.attended) - (b.perFight[key] / b.perFight.attended))
     .map((p) => `${p.name} ${p.perFight[key]}/${p.perFight.attended}`);
-  const flaskShame = shame("flaskFights");
+  // No flask or elixir at all on half+ their pulls — the clear offense.
+  const consShame = shame("elixirFights");
   const foodShame = shame("foodFights");
+  // Ran SOMETHING every pull but never a flask-equivalent (a lone elixir) —
+  // a softer nudge, listed separately so it doesn't read as "used nothing".
+  const partial = known
+    .filter((p) => p.perFight.elixirFights === p.perFight.attended && p.perFight.flaskFights === 0)
+    .map((p) => p.name);
   const enchShame = card.players.filter((p) => (p.missingCount ?? 0) > 0)
     .sort((a, b) => b.missingCount - a.missingCount)
     .map((p) => `${p.name} (${p.missingCount})`);
-  lines.push(`🧪 Flask/elixirs on half the pulls or less: ${flaskShame.join(", ") || "nobody 🎉"}`);
+  lines.push(`🧪 No flask/elixir on half the pulls or less: ${consShame.join(", ") || "nobody 🎉"}`);
+  if (partial.length) lines.push(`⚗️ Single elixir, no flask/pair: ${partial.join(", ")}`);
   lines.push(`🍖 Food on half the pulls or less: ${foodShame.join(", ") || "nobody 🎉"}`);
   lines.push(`✨ Missing enchants: ${enchShame.join(", ") || "nobody 🎉"}`);
   return lines.join("\n");
