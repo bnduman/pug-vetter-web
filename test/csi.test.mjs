@@ -288,6 +288,33 @@ test("classifyConsumables: battle + guardian elixir pair is flask-equivalent", (
   assert.equal(unknowns.flaskReady, true);
 });
 
+test("classifyConsumables: recognizes consumables by spell ID when the name lacks flask/elixir", () => {
+  // "Distilled Wisdom" (Flask of Distilled Wisdom) — buff name has no "flask".
+  // Seed auras carry the id as `ability`.
+  const oldFlask = classifyConsumables([{ ability: 17627, name: "Distilled Wisdom" }]);
+  assert.equal(oldFlask.flask, "Distilled Wisdom");
+  assert.equal(oldFlask.flaskReady, true);
+
+  // Buffs-table shape carries the id as `guid` instead.
+  const viaGuid = classifyConsumables([{ guid: 17628, name: "Supreme Power" }]);
+  assert.equal(viaGuid.flaskReady, true);
+
+  // "Healing Power" (battle) + "Draenic Wisdom" (guardian) — both stat-named,
+  // both ID-classified — form a flask-equivalent pair.
+  const pair = classifyConsumables([
+    { ability: 28491, name: "Healing Power" },
+    { ability: 39627, name: "Elixir of Draenic Wisdom" },
+  ]);
+  assert.equal(pair.battle, "Healing Power");
+  assert.equal(pair.guardian, "Elixir of Draenic Wisdom");
+  assert.equal(pair.flaskReady, true);
+
+  // a lone ID-classified battle elixir is still only half-prepped
+  const lone = classifyConsumables([{ ability: 28497, name: "Mighty Agility" }]);
+  assert.equal(lone.flaskReady, false);
+  assert.deepEqual(lone.elixirs, ["Mighty Agility"]);
+});
+
 test("classifyTalents: per-tree totals -> named trees + primary spec", () => {
   // warrior [21,40,0] (raw {id} shape) -> Fury
   const t = classifyTalents([{ id: 21 }, { id: 40 }, { id: 0 }], "Warrior");

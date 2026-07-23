@@ -4,6 +4,7 @@
 // the PuG Vetter gear + enchant logic.
 import { analyzeEnchants, buildGearList } from "../analyze.js";
 import { TALENT_TREES } from "../wcl-classes.js";
+import { CONSUMABLE_IDS } from "../consumable-ids.js";
 
 function unwrapPlayerDetails(pd) {
   if (pd && typeof pd === "object" && pd.data && typeof pd.data === "object") {
@@ -56,10 +57,16 @@ export function classifyConsumables(auras) {
   let drums = false;
   for (const a of auras) {
     const n = a.name ?? "";
-    // unanchored: catches "Flask of ..." AND the Bash'ir "Unstable Flask of ..."
-    if (/flask of/i.test(n)) flask = n;
+    // Spell ID is authoritative: buff-aura names drop the item's "Flask of" /
+    // "Elixir of" wording (see consumable-ids.js). Seeds carry it as `ability`,
+    // the buffs table as `guid`. Name matching is the fallback (demo data,
+    // consumables not yet in the ID table).
+    const kind = CONSUMABLE_IDS[a.ability ?? a.guid];
+    if (kind === "flask" || /flask of/i.test(n)) flask = n || "Flask";
     else if (/well fed/i.test(n)) food = true;
     else if (/^drums of battle/i.test(n)) drums = true;
+    else if (kind === "battle") { elixirs.push(n); battle = n; }
+    else if (kind === "guardian") { elixirs.push(n); guardian = n; }
     else if (/elixir/i.test(n)) {
       elixirs.push(n);
       const key = n.toLowerCase();
