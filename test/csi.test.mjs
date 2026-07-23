@@ -375,6 +375,9 @@ test("buildRaidPrep: per-player gear/enchants + consumables, coverage, ordering"
   const tank = r.players.find((p) => p.name === "Tankman");
   assert.equal(tank.class, "Paladin");
   assert.equal(tank.missingCount, 1);
+  // the specific missing slot + the item worn there, for item-by-item display
+  assert.deepEqual(tank.missingEnchants, [{ slot: "Hands", item: "Item9" }]);
+  assert.deepEqual(r.players.find((p) => p.name === "Dpsguy").missingEnchants, []);
   assert.equal(tank.issues, 1); // enchant only; flask + food are covered
   assert.equal(tank.consumables.flask, "Flask of Fortification");
   // gear rows carry per-item enchant details for the UI

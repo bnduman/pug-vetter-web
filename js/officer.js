@@ -118,7 +118,10 @@ function cardHtml(c) {
     const altTag = main !== p.name ? ` <span class="dim">(${esc(main)}'s alt)</span>` : "";
     const spec = p.talents ? `${p.talents.spec ?? "?"} ${p.talents.distribution}` : "?";
     const ench = p.hasGear
-      ? (p.missingCount === 0 ? '<span class="ok">✓</span>' : `<span class="warn">${p.missingCount} missing</span>`)
+      ? (p.missingCount === 0
+          ? '<span class="ok">✓</span>'
+          : `<span class="warn" title="${esc((p.missingEnchants ?? []).map((m) => m.item ? `${m.slot}: ${m.item}` : m.slot).join("\n"))}">${p.missingCount} missing</span>`
+            + `<span class="off-cons">${esc((p.missingEnchants ?? []).map((m) => m.slot).join(", "))}</span>`)
       : '<span class="dim" title="No gear data logged for this player">no data</span>';
     return `<tr>
       <td><span style="color:${color}">${esc(p.name)}</span> ${ROLE_ICONS[p.role] ?? ""}${altTag}</td>

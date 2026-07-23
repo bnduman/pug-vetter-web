@@ -115,7 +115,10 @@ export function reportCardToDiscord(card) {
     .map((p) => p.name);
   const enchShame = card.players.filter((p) => (p.missingCount ?? 0) > 0)
     .sort((a, b) => b.missingCount - a.missingCount)
-    .map((p) => `${p.name} (${p.missingCount})`);
+    .map((p) => {
+      const slots = (p.missingEnchants ?? []).map((m) => m.slot).join(", ");
+      return slots ? `${p.name} (${slots})` : `${p.name} (${p.missingCount})`;
+    });
   lines.push(`🧪 No flask/elixir on half the pulls or less: ${consShame.join(", ") || "nobody 🎉"}`);
   if (partial.length) lines.push(`⚗️ Single elixir, no flask/pair: ${partial.join(", ")}`);
   lines.push(`🍖 Food on half the pulls or less: ${foodShame.join(", ") || "nobody 🎉"}`);

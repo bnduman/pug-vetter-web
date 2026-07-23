@@ -174,18 +174,20 @@ test("reportCardToDiscord: shames 'no consumable', lists lone-elixir separately"
     title: "<SEND IT> TK+SSC",
     players: [
       // flask ran out for the last pull only — NOT shamed
-      { name: "Good", missingCount: 0, perFight: F(9, 8, 8, 9) },
+      { name: "Good", missingCount: 0, missingEnchants: [], perFight: F(9, 8, 8, 9) },
       // ran nothing on most pulls — the real offense
-      { name: "Cheaper", missingCount: 3, perFight: F(8, 0, 1, 3) },
+      { name: "Cheaper", missingCount: 3, missingEnchants: [{ slot: "Back" }, { slot: "Feet" }, { slot: "Weapon" }], perFight: F(8, 0, 1, 3) },
       // lone elixir every pull: NOT "no consumable" (elixirFights=9), but flagged partial
-      { name: "Elixdude", missingCount: 0, perFight: F(9, 0, 9, 9) },
-      { name: "Ghost", missingCount: 0, perFight: null }, // no combat data -> never shamed
+      { name: "Elixdude", missingCount: 0, missingEnchants: [], perFight: F(9, 0, 9, 9) },
+      { name: "Ghost", missingCount: 0, missingEnchants: [], perFight: null }, // no combat data -> never shamed
     ],
   };
   const text = reportCardToDiscord(card);
   assert.match(text, /No flask\/elixir on half the pulls or less: Cheaper 1\/8/);
   assert.ok(!/No flask\/elixir[^\n]*Elixdude/.test(text), "lone-elixir must not be in the 'no consumable' list");
   assert.match(text, /Single elixir, no flask\/pair: Elixdude/);
+  // enchants are itemized by slot, not just counted
+  assert.match(text, /Missing enchants: Cheaper \(Back, Feet, Weapon\)/);
   assert.ok(!text.includes("Good"), "flask user must not be shamed anywhere");
 
   const clean = reportCardToDiscord({ title: "t", players: [card.players[0]] });

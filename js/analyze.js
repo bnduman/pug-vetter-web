@@ -161,13 +161,13 @@ export function analyzeEnchants(gear) {
     const item = bySlot.get(rule.slot);
     const gems = gemsOf(item);
     if (!item || !item.id) {
-      slots.push({ slot: rule.label, status: "empty", enchant: null, gems, required: rule.required });
+      slots.push({ slot: rule.label, slotId: rule.slot, status: "empty", enchant: null, gems, required: rule.required });
       continue;
     }
     if (item.permanentEnchant) {
-      slots.push({ slot: rule.label, status: "enchanted", enchant: enchantNameOf(item), gems, required: rule.required });
+      slots.push({ slot: rule.label, slotId: rule.slot, status: "enchanted", enchant: enchantNameOf(item), gems, required: rule.required });
     } else {
-      slots.push({ slot: rule.label, status: "missing", enchant: null, gems, required: rule.required });
+      slots.push({ slot: rule.label, slotId: rule.slot, status: "missing", enchant: null, gems, required: rule.required });
       if (rule.required) missingRequired += 1;
     }
   }

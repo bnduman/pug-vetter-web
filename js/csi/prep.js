@@ -124,8 +124,15 @@ export function buildRaidPrep(playerDetails, consumablesById = {}, talentsById =
       const gearRaw = p.combatantInfo?.gear ?? [];
       const hasGear = gearRaw.length > 0;
       const en = hasGear ? analyzeEnchants(gearRaw) : null;
+      const gear = hasGear ? buildGearList(gearRaw) : [];
       const consumables = classifyConsumables(consumablesById[p.id]);
       const missingCount = en ? en.missing_required : null;
+      // The specific required slots missing an enchant, each with the item worn
+      // there (joined by slot id) — so the card can name them item by item.
+      const missingEnchants = en
+        ? en.slots.filter((s) => s.required && s.status === "missing")
+            .map((s) => ({ slot: s.slot, item: gear.find((g) => g.slot === s.slotId)?.name ?? null }))
+        : [];
       // Readiness issues: not flask-ready, no food, missing enchants.
       // Unknown data (no combat info / failed buff query) is never an issue.
       const issues =
@@ -138,7 +145,8 @@ export function buildRaidPrep(playerDetails, consumablesById = {}, talentsById =
         class: p.type ?? null,
         hasGear,
         missingCount,
-        gear: hasGear ? buildGearList(gearRaw) : [],
+        missingEnchants,
+        gear,
         consumables,
         talents: classifyTalents(talentsById[p.id], p.type),
         issues,
