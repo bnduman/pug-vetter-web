@@ -223,6 +223,8 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
       fights: [],
       players: [],
       raidSize: 0,
+      deathsOk: true,
+      reportDurationMs: (rep?.endTime ?? 0) - (rep?.startTime ?? 0),
       coverage: { tracked: 0, alwaysFlasked: 0, alwaysFed: 0, enchanted: 0, gearCovered: 0 },
     };
   }
@@ -278,14 +280,15 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
   const withData = prep.players.filter((p) => p.perFight);
   const card = {
     deathsOk,
+    // Whole-report window, for the opt-in deep scan (which covers trash too).
+    reportDurationMs: (rep?.endTime ?? 0) - (rep?.startTime ?? 0),
     code,
     title: rep?.title ?? code,
     zone: rep?.zone?.name ?? null,
     ts: rep?.startTime ?? 0,
-    // start/end are kept so the opt-in deep scan can query each pull's tables.
-    fights: fights.map((f) => ({
-      id: f.id, name: f.name, kill: !!f.kill, startTime: f.startTime, endTime: f.endTime,
-    })),
+    // The deep scan uses one whole-report window, so it needs no per-pull
+    // times; these are kept only for the card's own kills/pulls counts.
+    fights: fights.map((f) => ({ id: f.id, name: f.name, kill: !!f.kill })),
     raidSize: prep.raidSize,
     coverage: {
       tracked: withData.length,

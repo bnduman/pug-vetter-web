@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/officer-data.js";
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
-  avoidableFromDamageTaken, deathsByPlayer, interruptsFromTable,
+  avoidableFromDamageTaken, avoidableSpellIds, batchIds, consumablesFromCasts,
+  deathsByPlayer, interruptsFromTable,
 } from "../js/officer-stats.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
@@ -217,15 +218,16 @@ test("avoidableFromDamageTaken: role-aware, and sums only tracked mechanics", ()
   // Cave In (36240) is 'avoidable'; Cleave is 'frontal' (expected on a tank);
   // Melee is untracked. Same table, two roles -> different verdicts.
   const entries = [
-    { id: 1, abilities: [
+    { id: 1, total: 15000, abilities: [
       { guid: 36240, name: "Cave In", total: 5000 },
       { guid: 1, name: "Melee", total: 10000 },
     ] },
-    { id: 2, abilities: [{ name: "Cleave", total: 4000 }] },
-    { id: 3, abilities: [{ name: "Cleave", total: 4000 }] },
+    { id: 2, total: 4000, abilities: [{ name: "Cleave", total: 4000 }] },
+    { id: 3, total: 4000, abilities: [{ name: "Cleave", total: 4000 }] },
   ];
-  const r = avoidableFromDamageTaken(entries, new Map([[1, "dps"], [2, "tank"], [3, "dps"]]));
-  // untracked Melee counts toward `taken` but never toward `avoidable`
+  const r = avoidableFromDamageTaken(entries, new Map([[1, "dps"], [2, "tank"], [3, "dps"]]),
+    { recordTotal: true });
+  // untracked Melee is part of the denominator but never of `avoidable`
   assert.equal(r.get(1).avoidable, 5000);
   assert.equal(r.get(1).taken, 15000);
   assert.equal(r.get(1).abilities.get("Cave In").total, 5000);
@@ -270,20 +272,85 @@ test("fetchDeepStats: a degraded scan is NOT cached, so a retry re-queries", asy
       json: async () => ({ data: { reportData: { report: { table: { data: { entries: [] } } } } } }) };
   };
   try {
-    const fights = [{ id: 1, startTime: 0, endTime: 100 }];
-    const bad = await fetchDeepStats("RPT", fights, new Map());
+    const bad = await fetchDeepStats("RPT", 100000, new Map());
     assert.ok(bad.failed > 0, "expected the failing scan to report failures");
     const callsAfterBad = calls;
     healthy = true;
-    const good = await fetchDeepStats("RPT", fights, new Map());
+    const good = await fetchDeepStats("RPT", 100000, new Map());
     assert.ok(calls > callsAfterBad, "retry must issue real queries, not replay the failed scan");
     assert.equal(good.failed, 0);
     // ...and a clean scan IS cached.
     const before = calls;
-    await fetchDeepStats("RPT", fights, new Map());
+    await fetchDeepStats("RPT", 100000, new Map());
     assert.equal(calls, before, "a complete scan should be served from cache");
   } finally {
     globalThis.fetch = realFetch;
     clearDeepCache();
   }
+});
+
+test("batchIds: batches stay under the table's top-5 ability cap", () => {
+  const b = batchIds([1, 2, 3, 4, 5, 6, 7, 8, 9], 4);
+  assert.deepEqual(b, [[1, 2, 3, 4], [5, 6, 7, 8], [9]]);
+  assert.ok(b.every((x) => x.length <= 4), "a batch of >4 ids could be truncated at 5");
+  assert.deepEqual(batchIds([], 4), []);
+});
+
+test("avoidableSpellIds: only ids that could ever be blamed on someone", async () => {
+  const ids = avoidableSpellIds();
+  assert.ok(ids.length > 0);
+  // 36240 = Gruul Cave In, an 'avoidable' rule -> must be queried for.
+  assert.ok(ids.includes(36240), "a plain avoidable mechanic must be included");
+  // Every returned id must actually be avoidable for at least one role.
+  const { lookupRule, isAvoidableHit } = await import("../js/csi/rules.js");
+  for (const id of ids) {
+    const r = lookupRule(undefined, id);
+    assert.ok(isAvoidableHit(r, "dps") || isAvoidableHit(r, "tank"),
+      `id ${id} is never avoidable — querying it wastes a request`);
+  }
+});
+
+test("consumablesFromCasts: groups by kind and ignores uncatalogued casts", () => {
+  const r = consumablesFromCasts([
+    { id: 1, abilities: [
+      { guid: 28499, name: "Restore Mana", total: 21 },   // mana potion
+      { guid: 27237, name: "Master Healthstone", total: 3 }, // healing
+      { guid: 27230, name: "Create Healthstone", total: 5 }, // MAKING one: not a use
+      { guid: 999999, name: "Shadow Bolt", total: 400 },     // rotation: ignored
+    ] },
+    { id: 2, abilities: [{ guid: 35476, name: "Drums of Battle", total: 25 }] },
+  ]);
+  const a = r.get(1);
+  assert.equal(a.total, 24);            // 21 + 3, not 29 and not 429
+  assert.equal(a.byGroup.mana, 21);
+  assert.equal(a.byGroup.healing, 3);
+  assert.equal(a.items.get("Super Mana Potion"), 21);
+  assert.ok(!a.items.has("Create Healthstone"));
+  assert.equal(r.get(2).byGroup.drums, 25);
+});
+
+test("avoidableFromDamageTaken: real denominator comes only from the unfiltered pass", () => {
+  // Filtered tables only contain avoidable ids, so counting their totals as
+  // "all damage taken" makes every non-tank exactly 100%. The unfiltered pass
+  // supplies the true per-player total via `total`.
+  const filtered = [{ id: 1, total: 8000, abilities: [
+    { guid: 36240, name: "Cave In", total: 5000 },
+  ] }];
+  const noTotal = avoidableFromDamageTaken(filtered, new Map([[1, "dps"]]));
+  assert.equal(noTotal.get(1).avoidable, 5000);
+  assert.equal(noTotal.get(1).taken, 0, "a filtered table must not set the denominator");
+
+  // The unfiltered pass records the real total AND skips ids the batches cover.
+  const unfiltered = [{ id: 1, total: 250000, abilities: [
+    { guid: 36240, name: "Cave In", total: 5000 },   // already counted -> skip
+    { name: "Shadow Nova", total: 9000 },            // name-only rule -> count
+    { guid: 1, name: "Melee", total: 200000 },       // untracked -> not avoidable
+  ] }];
+  const withTotal = avoidableFromDamageTaken(unfiltered, new Map([[1, "dps"]]),
+    { skipIds: new Set([36240]), recordTotal: true });
+  const a = withTotal.get(1);
+  assert.equal(a.taken, 250000);
+  assert.equal(a.avoidable, 9000, "skipped id must not be double counted");
+  assert.ok(a.abilities.has("Shadow Nova"), "name-only catalogue rules must still be recovered");
+  assert.ok(!a.abilities.has("Cave In"));
 });

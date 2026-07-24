@@ -111,6 +111,27 @@ function interruptCell(p) {
   return `<td class="mono ok" title="${esc(title)}">${i.count}</td>`;
 }
 
+// Consumables actually used over the night: potions drunk, stones eaten, drums
+// beaten. Distinct from the "Consumables" prep column, which is about whether
+// they turned up with a flask.
+function usedCell(p) {
+  if (!deep) return "";
+  const c = deep.consumables.get(p.id);
+  if (!c || !c.total) return '<td class="mono dim">–</td>';
+  const g = c.byGroup;
+  // Every group the total counts must appear here, or the number and the
+  // breakdown under it disagree (Flame Cap, Fel Blossom & co are "misc").
+  const brief = [
+    g.mana ? `${g.mana} mana` : "",
+    g.healing ? `${g.healing} hp` : "",
+    g.drums ? `${g.drums} drums` : "",
+    g.utility ? `${g.utility} misc` : "",
+  ].filter(Boolean).join(", ");
+  const title = [...c.items.entries()].sort((a, b) => b[1] - a[1])
+    .map(([n, v]) => `${n} ×${v}`).join("\n");
+  return `<td class="mono" title="${esc(title)}">${c.total}<span class="off-cons">${esc(brief)}</span></td>`;
+}
+
 // --- screens ---------------------------------------------------------------
 
 function loading(text) {
@@ -146,9 +167,9 @@ function view(error) {
     </div>`;
 }
 
-// The deep scan costs ~2 queries per boss pull against a rate limit shared by
-// every visitor, so it's never automatic — the officer asks for it, and the
-// button says up front what it will cost.
+// The deep scan costs a fixed ~20 whole-report queries against a rate limit
+// shared by every visitor, so it's never automatic — the officer asks for it,
+// and the button says up front what it will cost.
 function deepButton(c) {
   const pulls = c.fights.length;
   if (deepScanCode === c.code) {
@@ -157,15 +178,15 @@ function deepButton(c) {
   if (deep && deep.failed) {
     // A degraded scan isn't cached, so re-running really does re-query.
     return `<button id="off-deep" class="secondary" type="button"
-      title="${deep.failed} pull(s) failed — their damage and interrupts are missing from these totals">
-      Re-analyse (${deep.failed} pull(s) failed)</button>`;
+      title="${deep.failed} of ${deep.queries} query batches failed — some avoidable damage, interrupts or consumables are missing from these totals">
+      Re-analyse (${deep.failed}/${deep.queries} batches failed)</button>`;
   }
   if (deep) {
-    return `<span class="off-deep-done">✓ Deep stats: ${deep.fightsScanned} pulls scanned</span>`;
+    return `<span class="off-deep-done">✓ Whole night analysed (${deep.queries} queries, trash included)</span>`;
   }
   return `<button id="off-deep" class="secondary" type="button"
-    title="Fetches avoidable damage and interrupts for each boss pull (~${pulls * 2} queries on the shared Warcraft Logs key)">
-    Analyse night (${pulls} pulls)</button>`;
+    title="Avoidable damage, interrupts and consumables for the whole night — trash included, not just the ${pulls} boss pulls (~20 queries on the shared Warcraft Logs key)">
+    Analyse night</button>`;
 }
 
 function cardHtml(c) {
@@ -199,6 +220,7 @@ function cardHtml(c) {
       ${deathCell(p)}
       ${avoidCell(p)}
       ${interruptCell(p)}
+      ${usedCell(p)}
     </tr>`;
   }).join("");
 
@@ -215,7 +237,9 @@ function cardHtml(c) {
     <table class="csi-table">
       <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th>
         <th title="Deaths across the whole night, trash included">Deaths</th>
-        ${deep ? '<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg</th><th title="Enemy casts interrupted">Interrupts</th>' : ""}</tr></thead>
+        ${deep ? '<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg</th>'
+          + '<th title="Enemy casts interrupted">Interrupts</th>'
+          + '<th title="Potions, healthstones and drums actually consumed">Used</th>' : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
@@ -224,11 +248,12 @@ function cardHtml(c) {
       <span class="warn">amber</span> = a single elixir or an inconsistent night; red = nothing.</p>
     <p class="csi-hint"><b>Deaths</b> cover the whole night, trash included.
       ${deep
-        ? `<b>Avoidable dmg</b> and <b>Interrupts</b> cover the ${deep.fightsScanned} <b>boss pulls only</b> —
-           anything that happened on trash isn't counted, so these run lower than a full-night tally.
+        ? `<b>Avoidable dmg</b>, <b>Interrupts</b> and <b>Used</b> also cover the whole night, trash included.
            Avoidable is judged per role: a frontal (Cleave, Mortal Cleave) is expected on the active
-           tank and only counts against everyone else.`
-        : "Avoidable damage and interrupts need the deep scan above."}</p>`;
+           tank and only counts against everyone else — it's damage from tracked boss mechanics, so an
+           ability the catalogue doesn't know isn't counted (regenerate with <code>npm run gen:rule-ids</code>).
+           <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.`
+        : "Avoidable damage, interrupts and consumables used need the deep scan above."}</p>`;
 }
 
 function rosterHtml() {
@@ -295,8 +320,8 @@ async function runDeep() {
   view();
   const roleById = new Map(card.players.map((p) => [p.id, p.role]));
   try {
-    const result = await fetchDeepStats(scanCode, card.fights, roleById, (done, total) => {
-      if (card?.code === scanCode) setDeepProgress(`Analysing pull ${done}/${total}…`);
+    const result = await fetchDeepStats(scanCode, card.reportDurationMs, roleById, (done, total) => {
+      if (card?.code === scanCode) setDeepProgress(`Analysing… ${done}/${total}`);
     });
     deepScanCode = null;
     // The officer may have loaded another report while this ran. These numbers

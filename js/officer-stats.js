@@ -9,18 +9,37 @@
 //   whole-report vs 132 summed per-encounter; the extra 24 are the trash
 //   deaths, so nothing is lost).
 //
-//   DEEP (2 queries per boss pull, opt-in): avoidable damage taken per
-//   player and interrupts. These MUST be fetched per fight and summed here:
-//   a whole-report DamageTaken table silently TRUNCATES. Measured on the same
-//   report: whole-report returned 22 distinct abilities, while the first 6
-//   encounters queried individually summed to 41 — Scalding Water, Spout,
-//   Flame Patch, Falling and 29 others were missing with no error. Building
-//   on the aggregate would have shown confident, badly wrong numbers.
+//   DEEP (~20 queries, opt-in): avoidable damage taken, interrupts, and
+//   consumables used — all across the WHOLE night, trash included.
+//
+// THE TRUNCATION TRAP that shapes this file: a WCL table returns only each
+// player's TOP 5 abilities. It is not a time-window limit and there is no
+// error — measured on a 4h SSC/TK report, every player came back with exactly
+// 5 damage-taken abilities whether the window was one pull or the whole night.
+// Two consequences:
+//   * Summing per-fight does NOT fix it (a single pull can exceed 5 too), it
+//     only makes the loss smaller and much more expensive.
+//   * Anything outside a player's top 5 is invisible — which is why searching
+//     the Casts table for consumables finds nothing: a raider's top 5 casts
+//     are always their rotation, never a potion.
+// The fix is to stop browsing and start ASKING: filterExpression restricts the
+// table to the abilities we care about, so they can't be crowded out. Ids are
+// batched in groups of 4 (safely under the cap of 5), over a whole-report
+// window — which is both complete AND cheaper than per-fight scanning, and
+// picks up trash for free.
+//
+// Validated against the guild's own RPB spreadsheet for 22-07: whole-report
+// interrupts came to 42 across 9 players, matching the sheet's row exactly
+// (boss-pull-only scanning had given 29).
 import { postGraphQL } from "./wcl.js";
 import { isAvoidableHit, lookupRule } from "./csi/rules.js";
+import { RULE_SPELL_IDS } from "./csi/rule-ids.js";
+import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "./consumable-casts.js";
 
-// Boss pulls fetched at once. Kept low: these tables are the heaviest query
-// the app makes, and the WCL key's rate limit is shared by every visitor.
+// Ability ids per filtered query. The table caps each player at 5 abilities,
+// so a batch of 4 can never be truncated.
+const IDS_PER_BATCH = 4;
+// Filtered queries in flight at once — the rate limit is shared by every visitor.
 const STATS_CONCURRENCY = 4;
 
 const DEATHS_QUERY = `
@@ -30,12 +49,39 @@ query($code: String!, $start: Float!, $end: Float!) {
   } }
 }`;
 
-const FIGHT_TABLE_QUERY = (dataType) => `
+const PLAIN_TABLE_QUERY = (dataType) => `
 query($code: String!, $start: Float!, $end: Float!) {
   reportData { report(code: $code) {
     table(startTime: $start, endTime: $end, dataType: ${dataType})
   } }
 }`;
+
+// filterExpression is interpolated (not a variable) because WCL parses it
+// server-side; ids are numbers we control, never user input.
+const FILTERED_TABLE_QUERY = (dataType, ids) => `
+query($code: String!, $start: Float!, $end: Float!) {
+  reportData { report(code: $code) {
+    table(startTime: $start, endTime: $end, dataType: ${dataType},
+          filterExpression: "ability.id in (${ids.join(", ")})")
+  } }
+}`;
+
+/** Split ids into batches small enough that the top-5 cap can't bite. */
+export function batchIds(ids, size = IDS_PER_BATCH) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
+/** The tracked spell ids whose rule could ever count as avoidable for someone.
+ *  Soak/tank/raidwide mechanics are never blamed, so we don't spend a query
+ *  asking about them. */
+export function avoidableSpellIds(spellIds = RULE_SPELL_IDS) {
+  return Object.keys(spellIds).map(Number).filter((id) => {
+    const rule = lookupRule(undefined, id);
+    return isAvoidableHit(rule, "dps") || isAvoidableHit(rule, "tank");
+  });
+}
 
 const unwrap = (t) => t?.data ?? t ?? {};
 
@@ -64,15 +110,22 @@ export function deathsByPlayer(deathEntries, encounterFightIds) {
  *  that frontals (Cleave, Mortal Cleave) are expected on the active tank and
  *  are only blamed on everyone else.
  *  -> Map playerId -> { avoidable, taken, abilities: Map name -> {total, guid} } */
-export function avoidableFromDamageTaken(entries, roleById = new Map()) {
+export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {}) {
+  // `skipIds`: ability ids already counted by the filtered batches, so the
+  //   unfiltered pass can add name-only matches without double counting.
+  // `recordTotal`: only the UNFILTERED table's per-player `total` is genuinely
+  //   ALL damage taken; a filtered table's total covers just the ids we asked
+  //   for, which would make every non-tank's percentage exactly 100%.
+  const { skipIds = null, recordTotal = false } = opts;
   const out = new Map();
   for (const p of entries ?? []) {
     if (p?.id == null) continue;
     const role = roleById.get(p.id) ?? null;
     const acc = out.get(p.id) ?? { avoidable: 0, taken: 0, abilities: new Map() };
+    if (recordTotal && typeof p.total === "number") acc.taken = p.total;
     for (const a of p.abilities ?? []) {
+      if (skipIds && a.guid != null && skipIds.has(a.guid)) continue;
       const total = a.total ?? 0;
-      acc.taken += total;
       const rule = lookupRule(a.name, a.guid);
       if (!isAvoidableHit(rule, role)) continue;
       acc.avoidable += total;
@@ -110,12 +163,47 @@ export function interruptsFromTable(table) {
   return out;
 }
 
+/** Consumables used, from a Casts table filtered to consumable ids.
+ *  -> Map playerId -> { total, byGroup: {mana,healing,drums,utility}, items: Map label -> count } */
+export function consumablesFromCasts(entries, catalogue = CONSUMABLE_CASTS) {
+  const out = new Map();
+  for (const p of entries ?? []) {
+    if (p?.id == null) continue;
+    const acc = out.get(p.id)
+      ?? { total: 0, byGroup: { mana: 0, healing: 0, drums: 0, utility: 0 }, items: new Map() };
+    for (const a of p.abilities ?? []) {
+      const known = catalogue[a.guid];
+      if (!known) continue; // an id we don't categorise isn't a consumable we count
+      const n = a.total ?? 0;
+      acc.total += n;
+      acc.byGroup[known.group] = (acc.byGroup[known.group] ?? 0) + n;
+      acc.items.set(known.label, (acc.items.get(known.label) ?? 0) + n);
+    }
+    out.set(p.id, acc);
+  }
+  return out;
+}
+
+function mergeConsumables(into, add) {
+  for (const [id, v] of add) {
+    const e = into.get(id)
+      ?? { total: 0, byGroup: { mana: 0, healing: 0, drums: 0, utility: 0 }, items: new Map() };
+    e.total += v.total;
+    for (const g of Object.keys(v.byGroup)) e.byGroup[g] = (e.byGroup[g] ?? 0) + v.byGroup[g];
+    for (const [k, n] of v.items) e.items.set(k, (e.items.get(k) ?? 0) + n);
+    into.set(id, e);
+  }
+  return into;
+}
+
 /** Fold a per-fight result Map into a running total Map. */
 function mergeAvoidable(into, add) {
   for (const [id, v] of add) {
     const e = into.get(id) ?? { avoidable: 0, taken: 0, abilities: new Map() };
     e.avoidable += v.avoidable;
-    e.taken += v.taken;
+    // Only the unfiltered pass carries a real total (the others report 0), and
+    // jobs finish in any order — so keep the largest rather than summing.
+    e.taken = Math.max(e.taken, v.taken);
     for (const [name, ab] of v.abilities) {
       const prev = e.abilities.get(name) ?? { total: 0, guid: ab.guid };
       prev.total += ab.total;
@@ -150,47 +238,62 @@ export async function fetchDeaths(code, reportDurationMs, encounterFightIds) {
 const deepCache = new Map(); // code -> deep stats (session-only; it's expensive)
 
 /**
- * Per-player avoidable damage + interrupts across the night's BOSS pulls.
- * Expensive by nature (2 queries per pull) — call it only from an explicit
- * user action, and report progress.
- * -> { avoidable: Map id->{...}, interrupts: Map id->{...}, fightsScanned, failed }
+ * Per-player avoidable damage, interrupts and consumables for the WHOLE night,
+ * trash included. Opt-in: ~20 filtered queries against a shared rate limit.
+ * -> { avoidable, interrupts, consumables: Map id->{...}, queries, failed }
  */
-export async function fetchDeepStats(code, fights, roleById = new Map(), onProgress = () => {}) {
+export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(), onProgress = () => {}) {
   if (deepCache.has(code)) return deepCache.get(code);
-  const list = (fights ?? []).filter((f) => f && f.startTime != null && f.endTime != null);
+  if (!code || !(reportDurationMs > 0)) {
+    return { avoidable: new Map(), interrupts: new Map(), consumables: new Map(), queries: 0, failed: 0 };
+  }
+  const vars = { code, start: 0, end: reportDurationMs };
   const avoidable = new Map();
   const interrupts = new Map();
+  const consumables = new Map();
+
+  // Each job is one query. Interrupts needs no filter — its table is keyed by
+  // the interrupted spell, not by a per-player ability list, so the top-5 cap
+  // doesn't apply and one whole-report query is both complete and cheapest.
+  const trackedIds = avoidableSpellIds();
+  const trackedSet = new Set(trackedIds);
+  const jobs = [
+    { query: PLAIN_TABLE_QUERY("Interrupts"),
+      apply: (t) => mergeInterrupts(interrupts, interruptsFromTable(t)) },
+    // One UNFILTERED DamageTaken table, doing two jobs the filtered batches
+    // can't. (a) Its per-player `total` is all damage taken — the honest
+    // denominator for the avoidable %. (b) Its top-5 rows still resolve by
+    // NAME, which recovers catalogued mechanics that have no harvested spell
+    // id yet (Shadow Nova, Void Zone, Flame Quills…); ids already covered by
+    // the batches are skipped so nothing is counted twice.
+    { query: PLAIN_TABLE_QUERY("DamageTaken"),
+      apply: (t) => mergeAvoidable(avoidable,
+        avoidableFromDamageTaken(t.entries, roleById, { skipIds: trackedSet, recordTotal: true })) },
+    ...batchIds(trackedIds).map((ids) => ({
+      query: FILTERED_TABLE_QUERY("DamageTaken", ids),
+      apply: (t) => mergeAvoidable(avoidable, avoidableFromDamageTaken(t.entries, roleById)),
+    })),
+    ...batchIds(CONSUMABLE_CAST_IDS).map((ids) => ({
+      query: FILTERED_TABLE_QUERY("Casts", ids),
+      apply: (t) => mergeConsumables(consumables, consumablesFromCasts(t.entries)),
+    })),
+  ];
+
   let done = 0;
   let failed = 0;
-
-  const DT = FIGHT_TABLE_QUERY("DamageTaken");
-  const IT = FIGHT_TABLE_QUERY("Interrupts");
-
-  for (let i = 0; i < list.length; i += STATS_CONCURRENCY) {
-    const batch = list.slice(i, i + STATS_CONCURRENCY);
-    await Promise.all(batch.map(async (f) => {
-      const vars = { code, start: f.startTime, end: f.endTime };
-      // One bad pull must not sink the night: count it and carry on, so the
+  for (let i = 0; i < jobs.length; i += STATS_CONCURRENCY) {
+    await Promise.all(jobs.slice(i, i + STATS_CONCURRENCY).map(async (job) => {
+      // One bad batch must not sink the night: count it and carry on, so the
       // card can say how complete the numbers are.
-      const [dt, it] = await Promise.all([
-        postGraphQL(DT, vars).catch(() => null),
-        postGraphQL(IT, vars).catch(() => null),
-      ]);
-      if (!dt || !it) failed += 1;
-      if (dt) {
-        const t = unwrap(dt.reportData?.report?.table);
-        mergeAvoidable(avoidable, avoidableFromDamageTaken(t.entries, roleById));
-      }
-      if (it) {
-        const t = unwrap(it.reportData?.report?.table);
-        mergeInterrupts(interrupts, interruptsFromTable(t));
-      }
+      const r = await postGraphQL(job.query, vars).catch(() => null);
+      if (!r) failed += 1;
+      else job.apply(unwrap(r.reportData?.report?.table));
       done += 1;
-      onProgress(done, list.length);
+      onProgress(done, jobs.length);
     }));
   }
 
-  const result = { avoidable, interrupts, fightsScanned: list.length, failed };
+  const result = { avoidable, interrupts, consumables, queries: jobs.length, failed };
   // Only a COMPLETE scan is cached. Caching a degraded one would pin the
   // missing numbers for the whole session: the early return above would hand
   // the same short totals back to every retry without issuing a query, and a
