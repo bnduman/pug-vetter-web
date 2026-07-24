@@ -49,7 +49,7 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!) {
       name
       classID
       recentReports(limit: ${MULTISPEC_SCAN_REPORTS}) {
-        data { code startTime fights(killType: Encounters) { id } }
+        data { code startTime endTime }
       }
 ${aliases}
     }
@@ -57,11 +57,17 @@ ${aliases}
 }`;
 }
 
+// Gear comes from the report's whole encounter window (killType: Encounters)
+// rather than an explicit fight-id list. Asking recentReports for each report's
+// nested `fights` is what USED to supply those ids, but WCL's nested-fights
+// resolver hangs past ~2 reports (measured 2026-07-24: limit 1 = 293ms, limit 3
+// = 20s timeout, every character affected — it took the whole vetter down).
+// A time window needs no fight ids and returns the same gear.
 const REPORT_GEAR_QUERY = `
-query($code: String!, $fightIDs: [Int]!) {
+query($code: String!, $start: Float!, $end: Float!) {
   reportData {
     report(code: $code) {
-      playerDetails(fightIDs: $fightIDs, includeCombatantInfo: true)
+      playerDetails(startTime: $start, endTime: $end, killType: Encounters, includeCombatantInfo: true)
     }
   }
 }`;
@@ -69,9 +75,11 @@ query($code: String!, $fightIDs: [Int]!) {
 // One report -> the character's gear set in it, or null if they're not in it.
 async function gearSetFromReport(rep, charName, className) {
   const code = rep.code;
-  const fightIds = (rep.fights ?? []).map((f) => f.id).filter((id) => id != null);
-  if (!code || !fightIds.length) return null;
-  const data = await postGraphQL(REPORT_GEAR_QUERY, { code, fightIDs: fightIds });
+  // playerDetails' window is relative to the report start, so 0 -> duration
+  // covers the entire report.
+  const duration = (rep.endTime ?? 0) - (rep.startTime ?? 0);
+  if (!code || !(duration > 0)) return null;
+  const data = await postGraphQL(REPORT_GEAR_QUERY, { code, start: 0, end: duration });
   const player = findPlayer(data.reportData?.report?.playerDetails, charName);
   if (!player || !player.gear.length) return null;
   const gear = buildGearList(player.gear);          // stamps per-item gs below
@@ -136,8 +144,10 @@ async function buildGearSets(reports, charName, className, multi) {
 export async function vet(name, { onScorecard } = {}) {
   const realm = CONFIG.REALM;
   const region = CONFIG.REGION;
-  // "vet7" — cache key versioned; bump when the result shape/values change.
-  const key = `vet7/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
+  // "vet8" — cache key versioned; bump when the result shape/values change.
+  // (vet8 also discards results cached during the nested-fights outage, which
+  // stored a gearError instead of gear.)
+  const key = `vet8/${region}/${slugifyRealm(realm)}/${name.toLowerCase()}`;
   const cached = cacheGet(key, CONFIG.LOOKUP_TTL_SECONDS);
   if (cached) return cached;
 
