@@ -575,3 +575,7 @@ footer a { color: var(--accent); }
 .csi-wh:hover { text-decoration: underline; }
 a.gench { text-decoration: none; }
 a.gench:hover { text-decoration: underline; }
+
+/* officer: deep-stats scan state */
+#officer .off-deep-done { font-size: 12px; color: var(--good); margin-left: 8px; }
+#officer .off-deep-done .warn { color: var(--bad); }

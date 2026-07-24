@@ -8,6 +8,7 @@ import { getAttendanceMap, resolveMain } from "./attendance.js";
 import {
   buildRoster, fetchOfficerCard, listGuildReports, reportCardToDiscord,
 } from "./officer-data.js";
+import { fetchDeepStats } from "./officer-stats.js";
 import { CLASS_COLORS, ROLE_ICONS } from "./wcl-classes.js";
 
 const root = document.getElementById("officer");
@@ -17,6 +18,11 @@ let roster = null;    // buildRoster() output
 let card = null;      // current report card
 let pickedCode = null; // dropdown choice — survives re-renders before "Load"
 let showEveryone = false;
+let deep = null;      // opt-in deep stats for the loaded card (see officer-stats.js)
+// Report code of the scan currently in flight, or null. A code (not a bool)
+// because the scan takes ~10s: the officer can load a different report while
+// it runs, and the result must only ever land on the report it scanned.
+let deepScanCode = null;
 const MIN_RAIDS = 3;  // roster filter: hide one-off pugs by default
 
 function esc(s) {
@@ -67,6 +73,44 @@ function consCell(pf) {
   return `<td class="mono ${cls}" title="${esc(title)}">${e}/${m}<span class="off-cons">${esc(label)}</span></td>`;
 }
 
+const num = (n) => (n ?? 0).toLocaleString();
+
+// Deaths cell: boss pulls vs trash. Trash deaths are called out separately —
+// dying to trash is a different conversation from dying to a boss mechanic.
+function deathCell(p) {
+  const d = p.deaths;
+  // null = the deaths query failed. Say so rather than showing a confident 0.
+  if (!d) return '<td class="mono dim" title="Death data could not be loaded for this report">no data</td>';
+  if (!d.total) return '<td class="mono dim">–</td>';
+  const trash = d.trash ? `<span class="off-cons">${d.trash} on trash</span>` : "";
+  const cls = d.total >= 5 ? "warn" : "";
+  return `<td class="mono ${cls}" title="${d.boss} on boss pulls, ${d.trash} on trash">${d.total}${trash}</td>`;
+}
+
+// Avoidable damage cell (deep stats only): total avoidable damage taken and
+// what share of all damage they took it was, with the worst abilities named.
+function avoidCell(p) {
+  if (!deep) return "";
+  const a = deep.avoidable.get(p.id);
+  if (!a || !a.taken) return '<td class="mono dim">–</td>';
+  const pct = a.taken ? Math.round((a.avoidable / a.taken) * 100) : 0;
+  if (!a.avoidable) return '<td class="mono ok">0</td>';
+  const worst = [...a.abilities.entries()].sort((x, y) => y[1].total - x[1].total);
+  const label = worst.slice(0, 2).map(([n]) => n).join(", ");
+  const cls = pct >= 40 ? "bad" : pct >= 15 ? "warn" : "";
+  const title = worst.map(([n, v]) => `${n}: ${num(v.total)}`).join("\n");
+  return `<td class="mono ${cls}" title="${esc(title)}">${num(a.avoidable)} <span class="dim">(${pct}%)</span>`
+    + `<span class="off-cons">${esc(label)}</span></td>`;
+}
+
+function interruptCell(p) {
+  if (!deep) return "";
+  const i = deep.interrupts.get(p.id);
+  if (!i || !i.count) return '<td class="mono dim">–</td>';
+  const title = [...i.spells.entries()].map(([s, n]) => `${s} ×${n}`).join("\n");
+  return `<td class="mono ok" title="${esc(title)}">${i.count}</td>`;
+}
+
 // --- screens ---------------------------------------------------------------
 
 function loading(text) {
@@ -102,6 +146,28 @@ function view(error) {
     </div>`;
 }
 
+// The deep scan costs ~2 queries per boss pull against a rate limit shared by
+// every visitor, so it's never automatic — the officer asks for it, and the
+// button says up front what it will cost.
+function deepButton(c) {
+  const pulls = c.fights.length;
+  if (deepScanCode === c.code) {
+    return '<button id="off-deep-progress" class="secondary" type="button" disabled>Analysing…</button>';
+  }
+  if (deep && deep.failed) {
+    // A degraded scan isn't cached, so re-running really does re-query.
+    return `<button id="off-deep" class="secondary" type="button"
+      title="${deep.failed} pull(s) failed — their damage and interrupts are missing from these totals">
+      Re-analyse (${deep.failed} pull(s) failed)</button>`;
+  }
+  if (deep) {
+    return `<span class="off-deep-done">✓ Deep stats: ${deep.fightsScanned} pulls scanned</span>`;
+  }
+  return `<button id="off-deep" class="secondary" type="button"
+    title="Fetches avoidable damage and interrupts for each boss pull (~${pulls * 2} queries on the shared Warcraft Logs key)">
+    Analyse night (${pulls} pulls)</button>`;
+}
+
 function cardHtml(c) {
   if (!c.fights.length) {
     return `<p class="sub">「${esc(c.title)}」 has no boss pulls — nothing to grade.
@@ -130,6 +196,9 @@ function cardHtml(c) {
       ${consCell(p.perFight)}
       ${ratioCell(p.perFight, "foodFights")}
       <td>${ench}</td>
+      ${deathCell(p)}
+      ${avoidCell(p)}
+      ${interruptCell(p)}
     </tr>`;
   }).join("");
 
@@ -142,14 +211,24 @@ function cardHtml(c) {
       ${chip("Fully enchanted", `${cov.enchanted}/${cov.gearCovered}`)}
     </div>
     <button id="off-copy" class="secondary" type="button">Copy for Discord</button>
+    ${deepButton(c)}
     <table class="csi-table">
-      <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th></tr></thead>
+      <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th>
+        <th title="Deaths across the whole night, trash included">Deaths</th>
+        ${deep ? '<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg</th><th title="Enemy casts interrupted">Interrupts</th>' : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
       each player attended (from per-pull combat snapshots), with what they ran.
       <span class="ok">Green</span> = flask or battle+guardian pair every pull;
-      <span class="warn">amber</span> = a single elixir or an inconsistent night; red = nothing.</p>`;
+      <span class="warn">amber</span> = a single elixir or an inconsistent night; red = nothing.</p>
+    <p class="csi-hint"><b>Deaths</b> cover the whole night, trash included.
+      ${deep
+        ? `<b>Avoidable dmg</b> and <b>Interrupts</b> cover the ${deep.fightsScanned} <b>boss pulls only</b> —
+           anything that happened on trash isn't counted, so these run lower than a full-night tally.
+           Avoidable is judged per role: a frontal (Cleave, Mortal Cleave) is expected on the active
+           tank and only counts against everyone else.`
+        : "Avoidable damage and interrupts need the deep scan above."}</p>`;
 }
 
 function rosterHtml() {
@@ -195,6 +274,7 @@ async function init() {
 async function loadCard(code) {
   if (!code) return;
   loading("Loading report card…");
+  deep = null; // deep stats belong to one report; never carry them across
   try {
     card = await fetchOfficerCard(code, (text) => loading(text));
     view();
@@ -202,6 +282,38 @@ async function loadCard(code) {
     card = null;
     view(msg(e));
   }
+}
+
+async function runDeep() {
+  // One scan at a time — it's the heaviest thing the app does, on a key every
+  // visitor shares. A complete scan is final; a degraded one may be retried.
+  if (!card || deepScanCode) return;
+  if (deep && !deep.failed) return;
+  const scanCode = card.code;
+  deepScanCode = scanCode;
+  if (deep) deep = null; // retrying: drop the degraded numbers while we re-run
+  view();
+  const roleById = new Map(card.players.map((p) => [p.id, p.role]));
+  try {
+    const result = await fetchDeepStats(scanCode, card.fights, roleById, (done, total) => {
+      if (card?.code === scanCode) setDeepProgress(`Analysing pull ${done}/${total}…`);
+    });
+    deepScanCode = null;
+    // The officer may have loaded another report while this ran. These numbers
+    // are keyed by THAT report's actor ids — never show them on a different one.
+    if (card?.code !== scanCode) return;
+    deep = result;
+    view();
+  } catch (e) {
+    deepScanCode = null;
+    if (card?.code === scanCode) view(msg(e));
+  }
+}
+
+// Live progress without re-rendering the whole card mid-scan.
+function setDeepProgress(text) {
+  const btn = root.querySelector("#off-deep-progress");
+  if (btn) btn.textContent = text;
 }
 
 async function copyCard(btn) {
@@ -220,6 +332,8 @@ async function copyCard(btn) {
 root.addEventListener("click", (e) => {
   if (e.target.closest("#off-load")) {
     loadCard(document.getElementById("off-report")?.value);
+  } else if (e.target.closest("#off-deep")) {
+    runDeep();
   } else if (e.target.closest("#off-copy")) {
     copyCard(e.target.closest("#off-copy"));
   } else if (e.target.closest("#off-retry")) {

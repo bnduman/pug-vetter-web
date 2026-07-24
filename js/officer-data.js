@@ -15,6 +15,7 @@
 import { CONFIG } from "./config.js";
 import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 import { buildRaidPrep, classifyConsumables } from "./csi/prep.js";
+import { fetchDeaths } from "./officer-stats.js";
 
 // ---------------------------------------------------------------------------
 // Per-fight consumable presence from combatantinfo rows ({fight, sourceID,
@@ -144,7 +145,7 @@ query($guildID: Int!, $limit: Int!) {
 const OFFICER_META_QUERY = `
 query($code: String!) {
   reportData { report(code: $code) {
-    title startTime
+    title startTime endTime
     zone { name }
     fights(killType: Encounters) { id name kill startTime endTime }
   } }
@@ -256,13 +257,35 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
     p.perFight = perFightById.get(p.id) ?? null;
   }
 
+  // Deaths for the WHOLE night (one query), split boss vs trash. Trash deaths
+  // never show up in the encounter-only views, but they're exactly what an
+  // officer wants to see, so the window is the full report.
+  onProgress("Reading deaths…");
+  let deathsById = new Map();
+  let deathsOk = true;
+  try {
+    const reportDuration = (rep?.endTime ?? 0) - (rep?.startTime ?? 0);
+    deathsById = await fetchDeaths(code, reportDuration, new Set(fightIDs));
+  } catch {
+    deathsOk = false; // deaths are a bonus; never fail the card over them
+  }
+  for (const p of prep.players) {
+    // null (not a zeroed record) when the query failed — "we don't know" must
+    // never render as "nobody died" on a night that had 150 deaths.
+    p.deaths = deathsOk ? (deathsById.get(p.id) ?? { total: 0, boss: 0, trash: 0 }) : null;
+  }
+
   const withData = prep.players.filter((p) => p.perFight);
   const card = {
+    deathsOk,
     code,
     title: rep?.title ?? code,
     zone: rep?.zone?.name ?? null,
     ts: rep?.startTime ?? 0,
-    fights: fights.map((f) => ({ id: f.id, name: f.name, kill: !!f.kill })),
+    // start/end are kept so the opt-in deep scan can query each pull's tables.
+    fights: fights.map((f) => ({
+      id: f.id, name: f.name, kill: !!f.kill, startTime: f.startTime, endTime: f.endTime,
+    })),
     raidSize: prep.raidSize,
     coverage: {
       tracked: withData.length,
@@ -273,6 +296,8 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
     },
     players: prep.players,
   };
-  cardCache.set(code, card);
+  // A card whose deaths query failed isn't cached, so re-loading it actually
+  // retries instead of serving the same "no data" column all session.
+  if (deathsOk) cardCache.set(code, card);
   return card;
 }

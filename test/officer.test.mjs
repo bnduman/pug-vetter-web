@@ -5,6 +5,9 @@ import assert from "node:assert/strict";
 
 import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/officer-data.js";
 import { mergeAlts, resolveMain } from "../js/attendance.js";
+import {
+  avoidableFromDamageTaken, deathsByPlayer, interruptsFromTable,
+} from "../js/officer-stats.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
 
@@ -193,4 +196,94 @@ test("reportCardToDiscord: shames 'no consumable', lists lone-elixir separately"
   const clean = reportCardToDiscord({ title: "t", players: [card.players[0]] });
   assert.match(clean, /No flask\/elixir on half the pulls or less: nobody 🎉/);
   assert.ok(!clean.includes("Single elixir"), "no partial line when nobody is partial");
+});
+
+// --- night stats (officer-stats.js) -----------------------------------------
+
+test("deathsByPlayer: splits boss pulls from trash", () => {
+  // fights 10/11 are encounters; 4 is trash.
+  const d = deathsByPlayer([
+    { id: 1, fight: 10 }, { id: 1, fight: 4 }, { id: 1, fight: 11 },
+    { id: 2, fight: 4 },
+    { id: null, fight: 10 },      // no player id -> ignored
+  ], new Set([10, 11]));
+  assert.deepEqual(d.get(1), { total: 3, boss: 2, trash: 1 });
+  assert.deepEqual(d.get(2), { total: 1, boss: 0, trash: 1 });
+  assert.equal(d.size, 2);
+  assert.deepEqual(deathsByPlayer(null, []).size, 0);
+});
+
+test("avoidableFromDamageTaken: role-aware, and sums only tracked mechanics", () => {
+  // Cave In (36240) is 'avoidable'; Cleave is 'frontal' (expected on a tank);
+  // Melee is untracked. Same table, two roles -> different verdicts.
+  const entries = [
+    { id: 1, abilities: [
+      { guid: 36240, name: "Cave In", total: 5000 },
+      { guid: 1, name: "Melee", total: 10000 },
+    ] },
+    { id: 2, abilities: [{ name: "Cleave", total: 4000 }] },
+    { id: 3, abilities: [{ name: "Cleave", total: 4000 }] },
+  ];
+  const r = avoidableFromDamageTaken(entries, new Map([[1, "dps"], [2, "tank"], [3, "dps"]]));
+  // untracked Melee counts toward `taken` but never toward `avoidable`
+  assert.equal(r.get(1).avoidable, 5000);
+  assert.equal(r.get(1).taken, 15000);
+  assert.equal(r.get(1).abilities.get("Cave In").total, 5000);
+  assert.equal(r.get(2).avoidable, 0);      // frontal on the tank: expected
+  assert.equal(r.get(3).avoidable, 4000);   // same hit on a dps: avoidable
+});
+
+test("interruptsFromTable: inverts spell-keyed rows into per-interrupter counts", () => {
+  const r = interruptsFromTable({ entries: [{ entries: [
+    { name: "Frostbolt", details: [
+      { id: 20, total: 2, actors: [{ name: "Staff of Disintegration" }] },
+      { id: 21, total: 1, actors: [{ name: "Staff of Disintegration" }] },
+    ] },
+    { name: "Greater Heal", details: [{ id: 20, total: 3, actors: [{ name: "Coilfang Priestess" }] }] },
+    { name: "Nameless", details: [{ id: 22, total: 1 }] }, // no source actor
+  ] }] });
+  assert.equal(r.get(20).count, 5);
+  assert.equal(r.get(20).spells.get("Frostbolt (Staff of Disintegration)"), 2);
+  assert.equal(r.get(20).spells.get("Greater Heal (Coilfang Priestess)"), 3);
+  assert.equal(r.get(21).count, 1);
+  assert.equal(r.get(22).spells.get("Nameless"), 1); // falls back to bare name
+  assert.equal(interruptsFromTable(null).size, 0);
+});
+
+test("fetchDeepStats: a degraded scan is NOT cached, so a retry re-queries", async () => {
+  // Pinning a failed scan would hand the same short totals to every retry
+  // without issuing a query — the bug this guards.
+  const { fetchDeepStats, clearDeepCache } = await import("../js/officer-stats.js");
+  const wcl = await import("../js/wcl.js");
+  clearDeepCache();
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  let healthy = false;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes("oauth")) {
+      return { ok: true, status: 200, headers: new Map(),
+        json: async () => ({ access_token: "t", expires_in: 3600 }) };
+    }
+    calls += 1;
+    if (!healthy) return { ok: false, status: 500, headers: new Map(), text: async () => "boom" };
+    return { ok: true, status: 200, headers: new Map(),
+      json: async () => ({ data: { reportData: { report: { table: { data: { entries: [] } } } } } }) };
+  };
+  try {
+    const fights = [{ id: 1, startTime: 0, endTime: 100 }];
+    const bad = await fetchDeepStats("RPT", fights, new Map());
+    assert.ok(bad.failed > 0, "expected the failing scan to report failures");
+    const callsAfterBad = calls;
+    healthy = true;
+    const good = await fetchDeepStats("RPT", fights, new Map());
+    assert.ok(calls > callsAfterBad, "retry must issue real queries, not replay the failed scan");
+    assert.equal(good.failed, 0);
+    // ...and a clean scan IS cached.
+    const before = calls;
+    await fetchDeepStats("RPT", fights, new Map());
+    assert.equal(calls, before, "a complete scan should be served from cache");
+  } finally {
+    globalThis.fetch = realFetch;
+    clearDeepCache();
+  }
 });
