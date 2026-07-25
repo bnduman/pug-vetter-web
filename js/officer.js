@@ -67,13 +67,17 @@ function consCell(pf) {
   if (!pf || !pf.attended) {
     return '<td class="dim mono" title="No combat data logged for this player">–</td>';
   }
-  const { flaskFights: n, elixirFights: e, attended: m, consumables = [] } = pf;
+  const { flaskFights: n, elixirFights: e, attended: m, consumables = [], scrolls = [], scrollFights = 0 } = pf;
   const cls = n === m ? "ok" : e > 0 ? "warn" : "bad";
   const labels = [...new Set(consumables.map(shortCons))];
-  const label = labels.join(", ") || "nothing";
-  const title = consumables.length
+  // Scrolls aren't elixirs and never count toward the ratio, but "scrolls only"
+  // is a different conversation from "brought nothing", so say which it was.
+  const label = labels.join(", ")
+    || (scrolls.length ? `scrolls only (${scrollFights}/${m})` : "nothing");
+  const scrollNote = scrolls.length ? `\nscrolls on ${scrollFights}/${m} pulls: ${scrolls.join(", ")}` : "";
+  const title = (consumables.length
     ? `flask-equivalent on ${n}/${m} pulls · ran: ${consumables.join(", ")}`
-    : "no flask or elixir on any pull";
+    : "no flask or elixir on any pull") + scrollNote;
   return `<td class="mono ${cls}" title="${esc(title)}">${e}/${m}<span class="off-cons">${esc(label)}</span></td>`;
 }
 

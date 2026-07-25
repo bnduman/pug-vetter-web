@@ -36,17 +36,23 @@ export function consumablesByFight(ciRows) {
     if (r.sourceID == null || r.fight == null) continue;
     let p = byPlayer.get(r.sourceID);
     if (!p) byPlayer.set(r.sourceID, (p = {
-      attended: 0, flaskFights: 0, elixirFights: 0, foodFights: 0, consumables: new Set(),
+      attended: 0, flaskFights: 0, elixirFights: 0, foodFights: 0, scrollFights: 0,
+      consumables: new Set(), scrolls: new Set(),
     }));
     p.attended += 1;
     const c = classifyConsumables(r.auras ?? []);
     if (c.flaskReady) p.flaskFights += 1;
     if (c.flask || c.elixirs.length) p.elixirFights += 1;
     if (c.food) p.foodFights += 1;
+    if (c.scrolls.length) p.scrollFights += 1;
     if (c.flask) p.consumables.add(c.flask);
     for (const e of c.elixirs) p.consumables.add(e);
+    for (const s of c.scrolls) p.scrolls.add(s);
   }
-  for (const p of byPlayer.values()) p.consumables = [...p.consumables].sort();
+  for (const p of byPlayer.values()) {
+    p.consumables = [...p.consumables].sort();
+    p.scrolls = [...p.scrolls].sort();
+  }
   return byPlayer;
 }
 

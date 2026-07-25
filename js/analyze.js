@@ -153,11 +153,17 @@ const emptySocketsOf = (item) => Math.max(0, socketsOf(item) - gemsOf(item));
 const enchantNameOf = (item) =>
   ENCHANT_NAMES[item.permanentEnchant] ?? item.permanentEnchantName ?? `#${item.permanentEnchant}`;
 
-export function analyzeEnchants(gear) {
+/** @param className  the player's class, for rules that only apply to some
+ *  (a hunter's scopeable ranged weapon vs a caster's wand). Omitted/unknown
+ *  class skips those rules entirely rather than guessing. */
+export function analyzeEnchants(gear, className) {
   const bySlot = gearBySlot(gear);
   const slots = [];
   let missingRequired = 0;
   for (const rule of ENCHANT_SLOTS) {
+    // A class-scoped slot isn't "missing" for everyone else — it's not a slot
+    // they have. Leave it out of the list entirely so nothing renders for them.
+    if (rule.classes && !rule.classes.includes(className)) continue;
     const item = bySlot.get(rule.slot);
     const gems = gemsOf(item);
     if (!item || !item.id) {

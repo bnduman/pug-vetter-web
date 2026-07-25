@@ -50,8 +50,19 @@ export const CONSUMABLE_IDS = {
   39628: "guardian", // Elixir of Ironskin
 };
 
-// NOT consumables for this purpose, and deliberately absent: the stat SCROLLS
-// (Scroll of Agility/Strength/Protection, buffs named plainly "Agility",
-// "Strength", "Armor" — +20 for 30min, vs an elixir's +35 for an hour). They
-// occupy neither the battle nor the guardian slot, so counting one toward a
-// flask-equivalent pair would invent preparation that never happened.
+// Stat SCROLLS, tracked SEPARATELY and never as elixirs. Their buffs are named
+// plainly ("Agility", "Strength", "Armor") and give +20 for 30min where the
+// elixir gives +35 for an hour. They occupy neither the battle nor the guardian
+// slot, so counting one toward a flask-equivalent pair would invent preparation
+// that never happened — but a raider who scrolled did bring *something*, which
+// is a different conversation from one who brought nothing.
+// To extend: Intellect/Spirit scrolls haven't appeared in these logs yet; read
+// the aura's `ability` id off a combatantinfo seed and add it here.
+export const SCROLL_IDS = {
+  33077: "Scroll of Agility",
+  33082: "Scroll of Strength",
+  33079: "Scroll of Protection",
+  12174: "Scroll of Agility",    // older ranks, still seen in play
+  12179: "Scroll of Strength",
+  12175: "Scroll of Protection",
+};

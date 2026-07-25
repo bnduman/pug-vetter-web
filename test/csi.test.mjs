@@ -332,13 +332,52 @@ test("classifyConsumables: TBC 'Elixir of Major X' buffs that drop the wording",
   assert.equal(caster.battle, "Major Firepower");
   assert.equal(caster.flaskReady, false); // one half only
 
-  // Stat SCROLLS share neither elixir slot and must never form a pair.
+  // Stat SCROLLS share neither elixir slot and must never form a pair, but
+  // they are reported separately so "scrolled" reads differently from "nothing".
   const scrolls = classifyConsumables([
     { ability: 33077, name: "Agility" },
     { ability: 33082, name: "Strength" },
   ]);
   assert.equal(scrolls.flaskReady, false, "two scrolls are not a flask-equivalent pair");
   assert.deepEqual(scrolls.elixirs, []);
+  assert.deepEqual(scrolls.scrolls, ["Scroll of Agility", "Scroll of Strength"]);
+
+  // A scroll must not top up a lone elixir into a fake pair either.
+  const mixed = classifyConsumables([
+    { ability: 28490, name: "Major Strength" }, // battle elixir
+    { ability: 33079, name: "Armor" },          // scroll, NOT a guardian elixir
+  ]);
+  assert.equal(mixed.flaskReady, false);
+  assert.deepEqual(mixed.scrolls, ["Scroll of Protection"]);
+});
+
+test("analyzeEnchants: the ranged slot is checked for hunters only", () => {
+  // A scopeable bow with no scope vs a wand that can never take one — same
+  // slot 17, and only the player's class tells them apart.
+  const base = [
+    { slot: 0, id: 1, permanentEnchant: 1 }, { slot: 2, id: 2, permanentEnchant: 1 },
+    { slot: 14, id: 3, permanentEnchant: 1 }, { slot: 4, id: 4, permanentEnchant: 1 },
+    { slot: 8, id: 5, permanentEnchant: 1 }, { slot: 9, id: 6, permanentEnchant: 1 },
+    { slot: 6, id: 7, permanentEnchant: 1 }, { slot: 7, id: 8, permanentEnchant: 1 },
+    { slot: 15, id: 9, permanentEnchant: 1 },
+  ];
+  const ranged = { slot: 17, id: 99, name: "Sunfury Bow of the Phoenix" };
+
+  const hunter = analyzeEnchants([...base, ranged], "Hunter");
+  assert.equal(hunter.missing_required, 1, "an unscoped hunter bow is a real gap");
+  assert.ok(hunter.slots.some((s) => s.slot === "Ranged" && s.status === "missing"));
+
+  const scoped = analyzeEnchants([...base, { ...ranged, permanentEnchant: 2523 }], "Hunter");
+  assert.equal(scoped.missing_required, 0);
+
+  // Every other class: the slot isn't theirs, so it isn't reported at all.
+  for (const cls of ["Mage", "Priest", "Warrior", "Shaman", "Paladin", "Druid"]) {
+    const other = analyzeEnchants([...base, { slot: 17, id: 98, name: "Wand" }], cls);
+    assert.equal(other.missing_required, 0, `${cls} must not be flagged for a ranged enchant`);
+    assert.ok(!other.slots.some((s) => s.slot === "Ranged"), `${cls} should not see a Ranged row`);
+  }
+  // Unknown class (no class data) must not invent a requirement either.
+  assert.equal(analyzeEnchants([...base, ranged]).missing_required, 0);
 });
 
 test("classifyTalents: per-tree totals -> named trees + primary spec", () => {

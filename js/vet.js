@@ -83,7 +83,7 @@ async function gearSetFromReport(rep, charName, className) {
   const player = findPlayer(data.reportData?.report?.playerDetails, charName);
   if (!player || !player.gear.length) return null;
   const gear = buildGearList(player.gear);          // stamps per-item gs below
-  const enchants = analyzeEnchants(player.gear);
+  const enchants = analyzeEnchants(player.gear, className);
   const gearscore = computeGearScore(gear, className);
   return {
     spec: player.spec,

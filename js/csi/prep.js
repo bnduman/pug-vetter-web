@@ -4,7 +4,7 @@
 // the PuG Vetter gear + enchant logic.
 import { analyzeEnchants, buildGearList } from "../analyze.js";
 import { TALENT_TREES } from "../wcl-classes.js";
-import { CONSUMABLE_IDS } from "../consumable-ids.js";
+import { CONSUMABLE_IDS, SCROLL_IDS } from "../consumable-ids.js";
 
 function unwrapPlayerDetails(pd) {
   if (pd && typeof pd === "object" && pd.data && typeof pd.data === "object") {
@@ -46,10 +46,11 @@ const GUARDIAN_ELIXIRS = new Set([
  *  answer: the player genuinely had nothing. */
 export function classifyConsumables(auras) {
   if (auras == null) {
-    return { unknown: true, flask: null, elixirs: [], battle: null, guardian: null, food: false, drums: false, flaskReady: false };
+    return { unknown: true, flask: null, elixirs: [], scrolls: [], battle: null, guardian: null, food: false, drums: false, flaskReady: false };
   }
   let flask = null;
   const elixirs = [];
+  const scrolls = [];
   let battle = null;
   let guardian = null;
   let unknownElixirs = 0;
@@ -57,6 +58,10 @@ export function classifyConsumables(auras) {
   let drums = false;
   for (const a of auras) {
     const n = a.name ?? "";
+    // Scrolls first: their buff names ("Agility", "Strength") are generic
+    // enough to be caught by other rules, and they are NOT elixirs.
+    const scroll = SCROLL_IDS[a.ability ?? a.guid];
+    if (scroll) { scrolls.push(scroll); continue; }
     // Spell ID is authoritative: buff-aura names drop the item's "Flask of" /
     // "Elixir of" wording (see consumable-ids.js). Seeds carry it as `ability`,
     // the buffs table as `guid`. Name matching is the fallback (demo data,
@@ -82,7 +87,7 @@ export function classifyConsumables(auras) {
   // window buff tables can list a battle elixir replaced by another mid-fight.
   const flaskReady = !!flask || (!!battle && !!guardian) ||
     unknownElixirs >= 2 || (unknownElixirs >= 1 && (!!battle || !!guardian));
-  return { unknown: false, flask, elixirs, battle, guardian, food, drums, flaskReady };
+  return { unknown: false, flask, elixirs, scrolls, battle, guardian, food, drums, flaskReady };
 }
 
 /**
@@ -123,7 +128,7 @@ export function buildRaidPrep(playerDetails, consumablesById = {}, talentsById =
       }
       const gearRaw = p.combatantInfo?.gear ?? [];
       const hasGear = gearRaw.length > 0;
-      const en = hasGear ? analyzeEnchants(gearRaw) : null;
+      const en = hasGear ? analyzeEnchants(gearRaw, p.type) : null;
       const gear = hasGear ? buildGearList(gearRaw) : [];
       const consumables = classifyConsumables(consumablesById[p.id]);
       const missingCount = en ? en.missing_required : null;

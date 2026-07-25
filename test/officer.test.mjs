@@ -33,24 +33,38 @@ test("consumablesByFight: tracks flask-equivalent, any-elixir, food, and names",
   ];
   const m = consumablesByFight(rows);
   assert.deepEqual(m.get(1), {
-    attended: 2, flaskFights: 2, elixirFights: 2, foodFights: 2,
-    consumables: ["Flask of Relentless Assault"],
+    attended: 2, flaskFights: 2, elixirFights: 2, foodFights: 2, scrollFights: 0,
+    consumables: ["Flask of Relentless Assault"], scrolls: [],
   });
   assert.deepEqual(m.get(2), {
-    attended: 2, flaskFights: 1, elixirFights: 1, foodFights: 0,
-    consumables: ["Elixir of Major Agility", "Elixir of Major Fortitude"],
+    attended: 2, flaskFights: 1, elixirFights: 1, foodFights: 0, scrollFights: 0,
+    consumables: ["Elixir of Major Agility", "Elixir of Major Fortitude"], scrolls: [],
   });
   // the lone-elixir case that was reading as "0/2 = nothing": now elixirFights=1
   assert.deepEqual(m.get(3), {
-    attended: 1, flaskFights: 0, elixirFights: 1, foodFights: 1,
-    consumables: ["Elixir of Major Agility"],
+    attended: 1, flaskFights: 0, elixirFights: 1, foodFights: 1, scrollFights: 0,
+    consumables: ["Elixir of Major Agility"], scrolls: [],
+  });
+});
+
+test("consumablesByFight: scrolls are counted apart from elixirs", () => {
+  // A raider who only ever scrolled must not read as "brought nothing", but
+  // must not gain a flask-equivalent pull either.
+  const m = consumablesByFight([
+    { fight: 1, sourceID: 5, auras: [{ ability: 33077, name: "Agility" }, { ability: 33082, name: "Strength" }] },
+    { fight: 2, sourceID: 5, auras: [] },
+  ]);
+  assert.deepEqual(m.get(5), {
+    attended: 2, flaskFights: 0, elixirFights: 0, foodFights: 0, scrollFights: 1,
+    consumables: [], scrolls: ["Scroll of Agility", "Scroll of Strength"],
   });
 });
 
 test("consumablesByFight: missing auras array counts as an unprepped pull", () => {
   const m = consumablesByFight([{ fight: 1, sourceID: 1 }]);
   assert.deepEqual(m.get(1), {
-    attended: 1, flaskFights: 0, elixirFights: 0, foodFights: 0, consumables: [],
+    attended: 1, flaskFights: 0, elixirFights: 0, foodFights: 0, scrollFights: 0,
+    consumables: [], scrolls: [],
   });
 });
 
