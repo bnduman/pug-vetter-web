@@ -455,6 +455,31 @@ test("consumablesFromCasts: groups by kind and ignores uncatalogued casts", () =
   assert.equal(r.get(2).byGroup.drums, 25);
 });
 
+test("avoidableFromDamageTaken: the denominator is `total`, NOT the sum of the rows", () => {
+  // Load-bearing WCL contract, measured 2026-07-25 on a 26-player report:
+  // the table returns only each player's TOP 5 abilities, but `total` stays
+  // the TRUE total damage taken. Σ total came to 11,617,920 — matching the
+  // ability-keyed view exactly — while the listed rows summed to 7,474,345.
+  // So the avoidable % must divide by `total`; "fixing" this to sum the
+  // visible rows would silently inflate every player's percentage.
+  const truncated = [{
+    id: 1,
+    total: 1000000,                 // real damage taken
+    abilities: [                    // only the 5 biggest survived the cap
+      { guid: 36240, name: "Cave In", total: 50000 },
+      { guid: 1, name: "Melee", total: 300000 },
+      { guid: 2, name: "Melee (2)", total: 100000 },
+      { guid: 3, name: "Melee (3)", total: 90000 },
+      { guid: 4, name: "Melee (4)", total: 60000 },
+    ],                              // ...400,000 of damage is not listed at all
+  }];
+  const r = avoidableFromDamageTaken(truncated, new Map([[1, "dps"]]), { recordTotal: true });
+  assert.equal(r.get(1).taken, 1000000, "must use total, not the 600,000 of visible rows");
+  assert.equal(r.get(1).avoidable, 50000);
+  // 5% of real damage, not the 8.3% that summing the rows would report
+  assert.equal(Math.round((r.get(1).avoidable / r.get(1).taken) * 100), 5);
+});
+
 test("avoidableFromDamageTaken: real denominator comes only from the unfiltered pass", () => {
   // Filtered tables only contain avoidable ids, so counting their totals as
   // "all damage taken" makes every non-tank exactly 100%. The unfiltered pass

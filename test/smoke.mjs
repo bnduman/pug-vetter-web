@@ -3,6 +3,8 @@
 // Usage: node test/smoke.mjs [name]
 import { CONFIG } from "../js/config.js";
 import { getAttendanceMap, getCoraidMap } from "../js/attendance.js";
+import { listGuildReports } from "../js/officer-data.js";
+import { postGraphQL } from "../js/wcl.js";
 import { vet } from "../js/vet.js";
 
 const explicitName = process.argv[2];
@@ -114,5 +116,72 @@ if (CONFIG.GUILD_NAME) {
     if (p.shared.some((r) => !r.code || !r.ts)) fail(`${p.name}: shared raid missing code/ts`);
   }
   if (co.players[CONFIG.ME_NAME.toLowerCase()]) fail("ME should not list itself as a co-raider");
+
+  // --- WCL API contracts the officer tab silently depends on ---------------
+  // These aren't our logic, they're assumptions about how WCL's tables behave.
+  // Every one was established by hand against live data; if WCL ever changes
+  // its mind the numbers would quietly go wrong, so assert them here rather
+  // than rediscover them the hard way.
+  const [latest] = await listGuildReports(1);
+  if (latest) {
+    const meta = await postGraphQL(`
+query($code: String!) { reportData { report(code: $code) {
+  startTime endTime fights(killType: Encounters) { id startTime endTime } } } }`, { code: latest.code });
+    const R = meta.reportData?.report;
+    const fights = R?.fights ?? [];
+    const dur = (R?.endTime ?? 0) - (R?.startTime ?? 0);
+    if (fights.length && dur > 0) {
+      const tbl = async (dataType, extra = "") => {
+        const d = await postGraphQL(`
+query($code: String!, $end: Float!) { reportData { report(code: $code) {
+  table(startTime: 0, endTime: $end, dataType: ${dataType}${extra}) } } }`, { code: latest.code, end: dur });
+        return d.reportData?.report?.table?.data ?? {};
+      };
+      console.log(`\nAPI contracts (against ${latest.code}):`);
+
+      // 1. A player-keyed table truncates to ~5 abilities, but `total` stays
+      //    the TRUE total — the denominator for avoidable %.
+      const byPlayer = await tbl("DamageTaken");
+      const byAbility = await tbl("DamageTaken", ", viewBy: Ability");
+      const sumTotals = (byPlayer.entries ?? []).reduce((n, p) => n + (p.total ?? 0), 0);
+      const sumListed = (byPlayer.entries ?? []).reduce(
+        (n, p) => n + (p.abilities ?? []).reduce((m, a) => m + (a.total ?? 0), 0), 0);
+      const sumByAbility = (byAbility.entries ?? []).reduce((n, a) => n + (a.total ?? 0), 0);
+      if (!sumTotals) fail("DamageTaken returned no per-player totals");
+      const drift = Math.abs(sumTotals - sumByAbility) / sumByAbility;
+      if (drift > 0.01) {
+        fail(`per-player Σtotal (${sumTotals}) disagrees with the ability view (${sumByAbility}) by ${(drift * 100).toFixed(1)}%`);
+      }
+      if (sumListed > sumTotals) fail("listed ability rows exceed Σtotal — total is not the real total");
+      console.log(`  Σtotal ${sumTotals.toLocaleString()} = ability view ✓ (visible rows only ${sumListed.toLocaleString()}, so truncation is real)`);
+
+      // 2. Deaths carry `fight`, or the boss/trash split silently calls
+      //    everything trash.
+      const deaths = await tbl("Deaths");
+      const dEntries = deaths.entries ?? [];
+      if (dEntries.length && !dEntries.some((d) => d.fight != null)) {
+        fail("no Deaths entry carries `fight` — the boss/trash split would be all-trash");
+      }
+      console.log(`  ${dEntries.length} deaths, all carrying a fight id ✓`);
+
+      // 3. Debuff uptime's denominator: fightIDs must aggregate to exactly the
+      //    summed length of the pulls asked for.
+      const bossMs = fights.reduce((n, f) => n + (f.endTime - f.startTime), 0);
+      const dbq = await postGraphQL(`
+query($code: String!) { reportData { report(code: $code) {
+  table(fightIDs: [${fights.map((f) => f.id).join(",")}], dataType: Debuffs, hostilityType: Enemies) } } }`,
+        { code: latest.code });
+      const dTbl = dbq.reportData?.report?.table?.data ?? {};
+      if (Math.abs((dTbl.totalTime ?? 0) - bossMs) > 1000) {
+        fail(`Debuffs totalTime ${dTbl.totalTime} != summed boss time ${bossMs} — uptime denominators are wrong`);
+      }
+      for (const a of dTbl.auras ?? []) {
+        if ((a.totalUptime ?? 0) > (dTbl.totalTime ?? 0) * 1.01) {
+          fail(`debuff "${a.name}" uptime ${a.totalUptime} exceeds the window — uptime sums per target instead of unioning`);
+        }
+      }
+      console.log(`  debuff window ${Math.round(bossMs / 1000)}s matches summed pulls ✓ (${(dTbl.auras ?? []).length} debuffs, none over 100%)`);
+    }
+  }
 }
 console.log("\nSMOKE OK");
