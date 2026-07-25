@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/officer-data.js";
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
-  avoidableFromDamageTaken, avoidableSpellIds, batchIds, consumablesFromCasts,
-  deathsByPlayer, interruptsFromTable,
+  abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
+  consumablesFromCasts, deathsByPlayer, interruptsFromTable,
 } from "../js/officer-stats.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
@@ -233,6 +233,50 @@ test("avoidableFromDamageTaken: role-aware, and sums only tracked mechanics", ()
   assert.equal(r.get(1).abilities.get("Cave In").total, 5000);
   assert.equal(r.get(2).avoidable, 0);      // frontal on the tank: expected
   assert.equal(r.get(3).avoidable, 4000);   // same hit on a dps: avoidable
+});
+
+test("abilityHostility: Boss/NPC sources are hostile, player-only is not", () => {
+  const m = abilityHostility([
+    { guid: 38235, name: "Water Tomb", sources: [{ name: "Hydross", type: "Boss" }] },
+    { guid: 27213, name: "Hellfire", sources: [{ name: "Vaidilë", type: "Warlock" }] },
+    { guid: 6603, name: "Melee", sources: [{ name: "Add", type: "NPC" }] },
+    // boss auras log with no sources at all (Watery Grave, Reverberation)
+    { guid: 38028, name: "Watery Grave", sources: [] },
+    // same ability from both a boss and a mind-controlled player -> hostile wins
+    { guid: 999, name: "Mixed", sources: [{ type: "Mage" }] },
+    { guid: 999, name: "Mixed", sources: [{ type: "Boss" }] },
+  ]);
+  assert.equal(m.get(38235), true);
+  assert.equal(m.get(27213), false);
+  assert.equal(m.get(6603), true);
+  assert.equal(m.get(38028), true);
+  assert.equal(m.get(999), true);
+  assert.equal(m.has(12345), false); // unseen ability isn't in the map
+});
+
+test("avoidableFromDamageTaken: a player's own ability isn't blamed as a boss mechanic", () => {
+  // Hellfire/Blizzard/Cleave/Whirlwind all collide with catalogue names and
+  // reach the NAME fallback (no harvested boss id), so only the source tells
+  // them apart. Chain mechanics are friendly-sourced BY DESIGN and must stay.
+  const entries = [{ id: 1, total: 100000, abilities: [
+    { guid: 27213, name: "Hellfire", total: 3000 },     // warlock's own
+    { guid: 1680, name: "Whirlwind", total: 1300 },      // warrior's own
+    { guid: 38281, name: "Static Charge", total: 40000 }, // chain: legit
+    { guid: 36240, name: "Cave In", total: 5000 },        // real boss mechanic
+  ] }];
+  const hostileById = new Map([
+    [27213, false], [1680, false], [38281, false], [36240, true],
+  ]);
+  const roles = new Map([[1, "dps"]]);
+
+  const guarded = avoidableFromDamageTaken(entries, roles, { hostileById });
+  assert.equal(guarded.get(1).avoidable, 45000); // Static Charge + Cave In only
+  assert.ok(!guarded.get(1).abilities.has("Hellfire"));
+  assert.ok(!guarded.get(1).abilities.has("Whirlwind"));
+  assert.ok(guarded.get(1).abilities.has("Static Charge"), "chain must survive the guard");
+
+  // Without the map (query failed) nothing is dropped — degrade, don't lose data.
+  assert.equal(avoidableFromDamageTaken(entries, roles).get(1).avoidable, 49300);
 });
 
 test("interruptsFromTable: inverts spell-keyed rows into per-interrupter counts", () => {

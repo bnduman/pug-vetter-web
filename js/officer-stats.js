@@ -56,6 +56,16 @@ query($code: String!, $start: Float!, $end: Float!) {
   } }
 }`;
 
+// Same table keyed by ABILITY instead of by player, which is the only view that
+// carries `sources` — who actually dealt each ability. Used to tell a boss
+// mechanic from a player ability that merely shares its name.
+const ABILITY_SOURCES_QUERY = `
+query($code: String!, $start: Float!, $end: Float!) {
+  reportData { report(code: $code) {
+    table(startTime: $start, endTime: $end, dataType: DamageTaken, viewBy: Ability)
+  } }
+}`;
+
 // filterExpression is interpolated (not a variable) because WCL parses it
 // server-side; ids are numbers we control, never user input.
 const FILTERED_TABLE_QUERY = (dataType, ids) => `
@@ -104,6 +114,25 @@ export function deathsByPlayer(deathEntries, encounterFightIds) {
   return out;
 }
 
+/** Which abilities a hostile unit actually dealt, from a viewBy:Ability table.
+ *  -> Map abilityId -> true when any Boss/NPC source dealt it, false when the
+ *  only sources were players. Ids absent from the table aren't in the map at
+ *  all, and callers treat unknown as allowed — this only ever demotes an
+ *  ability we have positive evidence about. */
+export function abilityHostility(entries) {
+  const out = new Map();
+  for (const a of entries ?? []) {
+    if (a?.guid == null) continue;
+    const sources = a.sources ?? [];
+    // No sources at all = boss aura/environment attribution (Watery Grave,
+    // Reverberation) — hostile, not a player ability.
+    const hostile = sources.length === 0
+      || sources.some((s) => s.type === "Boss" || s.type === "NPC");
+    out.set(a.guid, out.get(a.guid) || hostile);
+  }
+  return out;
+}
+
 /** Avoidable damage taken, from one fight's DamageTaken table.
  *  Every ability is run through the SAME catalogue the Wipe Autopsy uses, so
  *  "avoidable" means the same thing in both tabs — including the role rule
@@ -116,7 +145,14 @@ export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {
   // `recordTotal`: only the UNFILTERED table's per-player `total` is genuinely
   //   ALL damage taken; a filtered table's total covers just the ids we asked
   //   for, which would make every non-tank's percentage exactly 100%.
-  const { skipIds = null, recordTotal = false } = opts;
+  // `hostileById`: from abilityHostility(). A player's OWN ability must never
+  //   be blamed as a boss mechanic just because it shares the name — a
+  //   warlock's Hellfire, a mage's Blizzard, a warrior's Cleave/Whirlwind all
+  //   collide with catalogue entries and reach the name fallback. This is the
+  //   table-side equivalent of mechanics.js's sourceAllowed(). Chain mechanics
+  //   (Static Charge, Shatter, Wrath of the Astromancer) propagate FROM players
+  //   by design and are always kept.
+  const { skipIds = null, recordTotal = false, hostileById = null } = opts;
   const out = new Map();
   for (const p of entries ?? []) {
     if (p?.id == null) continue;
@@ -128,6 +164,8 @@ export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {
       const total = a.total ?? 0;
       const rule = lookupRule(a.name, a.guid);
       if (!isAvoidableHit(rule, role)) continue;
+      if (hostileById && a.guid != null && rule.category !== "chain"
+          && hostileById.get(a.guid) === false) continue;
       acc.avoidable += total;
       const key = a.name ?? `#${a.guid}`;
       const prev = acc.abilities.get(key) ?? { total: 0, guid: a.guid ?? null };
@@ -257,6 +295,14 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   // doesn't apply and one whole-report query is both complete and cheapest.
   const trackedIds = avoidableSpellIds();
   const trackedSet = new Set(trackedIds);
+
+  // Who dealt what, fetched first because the unfiltered pass below needs it to
+  // reject players' own abilities. One query; on failure we get an empty map and
+  // fall back to the previous (unguarded) behaviour rather than losing the scan.
+  const hostileById = await postGraphQL(ABILITY_SOURCES_QUERY, vars)
+    .then((r) => abilityHostility(unwrap(r.reportData?.report?.table).entries))
+    .catch(() => new Map());
+
   const jobs = [
     { query: PLAIN_TABLE_QUERY("Interrupts"),
       apply: (t) => mergeInterrupts(interrupts, interruptsFromTable(t)) },
@@ -268,7 +314,8 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
     // the batches are skipped so nothing is counted twice.
     { query: PLAIN_TABLE_QUERY("DamageTaken"),
       apply: (t) => mergeAvoidable(avoidable,
-        avoidableFromDamageTaken(t.entries, roleById, { skipIds: trackedSet, recordTotal: true })) },
+        avoidableFromDamageTaken(t.entries, roleById,
+          { skipIds: trackedSet, recordTotal: true, hostileById })) },
     ...batchIds(trackedIds).map((ids) => ({
       query: FILTERED_TABLE_QUERY("DamageTaken", ids),
       apply: (t) => mergeAvoidable(avoidable, avoidableFromDamageTaken(t.entries, roleById)),
@@ -293,7 +340,8 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
     }));
   }
 
-  const result = { avoidable, interrupts, consumables, queries: jobs.length, failed };
+  // +1 for the ability-sources query above, which the card counts too.
+  const result = { avoidable, interrupts, consumables, queries: jobs.length + 1, failed };
   // Only a COMPLETE scan is cached. Caching a degraded one would pin the
   // missing numbers for the whole session: the early return above would hand
   // the same short totals back to every retry without issuing a query, and a
