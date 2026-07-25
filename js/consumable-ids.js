@@ -34,6 +34,7 @@ export const CONSUMABLE_IDS = {
   28491: "battle", // Healing Power (Elixir of Healing Power)
   28493: "battle", // Major Frost Power (Elixir of Major Frost Power)
   28497: "battle", // Mighty Agility (Elixir of Major Agility)
+  28501: "battle", // Major Firepower (Elixir of Major Firepower) — +55 fire dmg
   28503: "battle", // Major Shadow Power (Elixir of Major Shadow Power)
   17538: "battle", // Elixir of the Mongoose
   17539: "battle", // Greater Arcane Elixir
@@ -43,7 +44,14 @@ export const CONSUMABLE_IDS = {
 
   // ---- guardian elixirs (defensive / utility) ----
   24363: "guardian", // Mageblood Elixir
+  28502: "guardian", // Major Armor (Elixir of Major Defense) — +550 armour
   39625: "guardian", // Elixir of Major Fortitude
   39627: "guardian", // Elixir of Draenic Wisdom
   39628: "guardian", // Elixir of Ironskin
 };
+
+// NOT consumables for this purpose, and deliberately absent: the stat SCROLLS
+// (Scroll of Agility/Strength/Protection, buffs named plainly "Agility",
+// "Strength", "Armor" — +20 for 30min, vs an elixir's +35 for an hour). They
+// occupy neither the battle nor the guardian slot, so counting one toward a
+// flask-equivalent pair would invent preparation that never happened.

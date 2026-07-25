@@ -315,6 +315,32 @@ test("classifyConsumables: recognizes consumables by spell ID when the name lack
   assert.deepEqual(lone.elixirs, ["Mighty Agility"]);
 });
 
+test("classifyConsumables: TBC 'Elixir of Major X' buffs that drop the wording", () => {
+  // The buff is named after the EFFECT, not the item, so neither the name
+  // regex nor the item-name lists can see these — only the id map can.
+  // Verified against Wowhead TBC: 28502 = +550 armour/1h (Elixir of Major
+  // Defense, guardian), 28501 = +55 fire damage/1h (Major Firepower, battle).
+  const tank = classifyConsumables([
+    { ability: 28502, name: "Major Armor" },     // guardian
+    { ability: 28490, name: "Major Strength" },  // battle
+  ]);
+  assert.equal(tank.guardian, "Major Armor");
+  assert.equal(tank.battle, "Major Strength");
+  assert.equal(tank.flaskReady, true, "a real battle+guardian pair must count");
+
+  const caster = classifyConsumables([{ ability: 28501, name: "Major Firepower" }]);
+  assert.equal(caster.battle, "Major Firepower");
+  assert.equal(caster.flaskReady, false); // one half only
+
+  // Stat SCROLLS share neither elixir slot and must never form a pair.
+  const scrolls = classifyConsumables([
+    { ability: 33077, name: "Agility" },
+    { ability: 33082, name: "Strength" },
+  ]);
+  assert.equal(scrolls.flaskReady, false, "two scrolls are not a flask-equivalent pair");
+  assert.deepEqual(scrolls.elixirs, []);
+});
+
 test("classifyTalents: per-tree totals -> named trees + primary spec", () => {
   // warrior [21,40,0] (raw {id} shape) -> Fury
   const t = classifyTalents([{ id: 21 }, { id: 40 }, { id: 0 }], "Warrior");

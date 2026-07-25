@@ -29,13 +29,20 @@ export const CONSUMABLE_CASTS = {
   41617: { label: "Cenarion Mana Salve", group: "mana" },
   41618: { label: "Bottled Nethergon Energy", group: "mana" },
   27869: { label: "Dark Rune", group: "mana" },
+  16666: { label: "Demonic Rune", group: "mana" },
   27103: { label: "Mana Emerald", group: "mana" },
+  10058: { label: "Mana Emerald", group: "mana" },   // lower rank, same item line
   // ---- health restore ----
   28495: { label: "Super Healing Potion", group: "healing" },
   41620: { label: "Bottled Nethergon Vapor", group: "healing" },
-  27237: { label: "Master Healthstone", group: "healing" },
-  27235: { label: "Major Healthstone", group: "healing" },
-  27236: { label: "Greater Healthstone", group: "healing" },
+  17534: { label: "Healing Potion", group: "healing" },
+  41619: { label: "Healing Potion", group: "healing" },
+  // Healthstone ranks: WCL reports 27235/27236/27237 all as "Master
+  // Healthstone", so they're labelled by the line rather than by a rank we
+  // can't tell apart in the data.
+  27237: { label: "Healthstone", group: "healing" },
+  27235: { label: "Healthstone", group: "healing" },
+  27236: { label: "Healthstone", group: "healing" },
   // ---- raid drums (leatherworking) ----
   35476: { label: "Drums of Battle", group: "drums" },
   35475: { label: "Drums of War", group: "drums" },
