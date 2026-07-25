@@ -75,19 +75,28 @@ export function mergeAlts(players, alts = CONFIG.ALTS) {
 }
 
 // WCL's attendance endpoint intermittently hangs past our 20s timeout
-// (observed 2026-07-16 while switching guilds: identical queries alternated
-// between ~400ms and timeouts for ~10 minutes). One retry rescues those runs;
-// non-timeout errors (auth, bad query) still surface immediately.
-async function attendancePage(vars) {
+// (observed 2026-07-16 while switching guilds, and again 2026-07-24: identical
+// queries alternated between ~400ms and hard timeouts for minutes at a stretch).
+// One retry rescues those runs; non-timeout errors (auth, bad query) still
+// surface immediately.
+async function attendancePage(vars, deadline = Infinity) {
   try {
     return await postGraphQL(ATTENDANCE_QUERY, vars);
   } catch (err) {
-    if (err instanceof WCLError && /timed out/i.test(err.message)) {
+    // Don't spend a second 20s timeout when the scan is already over budget —
+    // that retry is what turns a slow page into a multi-minute one.
+    if (err instanceof WCLError && /timed out/i.test(err.message) && Date.now() < deadline) {
       return postGraphQL(ATTENDANCE_QUERY, vars);
     }
     throw err;
   }
 }
+
+// Total time the whole paged scan may spend. Without it, 4 pages each burning
+// a 20s timeout plus a 20s retry can hang the tab for minutes (measured: 352s)
+// before showing anything. Once it's blown we stop asking for more pages and
+// return what we already have.
+const ATTENDANCE_DEADLINE_MS = 45000;
 
 // -> { guildName, reportsScanned, players: { nameLower:
 //      {name, count, lastTs, raids: [{code, ts, zone}] (newest first)} } }
@@ -115,8 +124,22 @@ export async function getAttendanceMap() {
   let guildName = CONFIG.GUILD_NAME;
   let reportsScanned = 0;
 
+  const deadline = Date.now() + ATTENDANCE_DEADLINE_MS;
+  let partial = false;
+
   for (let page = 1; page <= CONFIG.ATTENDANCE_MAX_PAGES; page++) {
-    const data = await attendancePage({ ...vars, page });
+    if (page > 1 && Date.now() > deadline) { partial = true; break; }
+    let data;
+    try {
+      data = await attendancePage({ ...vars, page }, deadline);
+    } catch (err) {
+      // A later page failing must not throw away the pages that worked: an
+      // officer would rather see 25 raids of history than an error screen.
+      // Only a first page with nothing behind it is a real failure.
+      if (page === 1) throw err;
+      partial = true;
+      break;
+    }
     const guild = data.guildData?.guild;
     if (!guild) return null; // guild not found on WCL
     guildName = guild.name ?? guildName;
@@ -149,8 +172,10 @@ export async function getAttendanceMap() {
   for (const entry of Object.values(players)) {
     entry.raids.sort((a, b) => b.ts - a.ts); // newest first
   }
-  const result = { guildName, reportsScanned, players };
-  cacheSet(key, result); // raw, pre-merge (see cache note above)
+  const result = { guildName, reportsScanned, players, partial };
+  // A partial scan isn't cached: it would pin the short history for the full
+  // 6h TTL, and the next visit should try for the rest.
+  if (!partial) cacheSet(key, result); // raw, pre-merge (see cache note above)
   mergeAlts(players);
   return result;
 }

@@ -354,3 +354,39 @@ test("avoidableFromDamageTaken: real denominator comes only from the unfiltered 
   assert.ok(a.abilities.has("Shadow Nova"), "name-only catalogue rules must still be recovered");
   assert.ok(!a.abilities.has("Cave In"));
 });
+
+test("getAttendanceMap: a later page timing out keeps the pages that worked", async () => {
+  // WCL's attendance endpoint hangs intermittently. Throwing away page 1
+  // because page 2 died is what made the Officer tab show only "timed out".
+  const { getAttendanceMap } = await import("../js/attendance.js");
+  const { CONFIG } = await import("../js/config.js");
+  const realFetch = globalThis.fetch;
+  const realPages = CONFIG.ATTENDANCE_MAX_PAGES;
+  CONFIG.ATTENDANCE_MAX_PAGES = 3;
+  let page = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("oauth")) {
+      return { ok: true, status: 200, headers: new Map(),
+        json: async () => ({ access_token: "t", expires_in: 3600 }) };
+    }
+    page += 1;
+    if (page > 1) throw new Error("hang"); // pages 2+ die
+    return { ok: true, status: 200, headers: new Map(), json: async () => ({
+      data: { guildData: { guild: { name: "SEND IT", attendance: {
+        total: 75, per_page: 25, current_page: 1,
+        data: [{ code: "r1", startTime: 1000, zone: { name: "SSC" },
+                 players: [{ name: "Peerica", presence: 1 }] }],
+      } } } },
+    }) };
+  };
+  try {
+    const map = await getAttendanceMap();
+    assert.ok(map, "page 1 succeeded, so there must be a map");
+    assert.equal(map.partial, true, "must be flagged partial so the UI can say so");
+    assert.equal(map.reportsScanned, 1);
+    assert.ok(map.players.peerica, "the page that worked must survive");
+  } finally {
+    globalThis.fetch = realFetch;
+    CONFIG.ATTENDANCE_MAX_PAGES = realPages;
+  }
+});

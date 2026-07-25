@@ -18,6 +18,9 @@ let roster = null;    // buildRoster() output
 let card = null;      // current report card
 let pickedCode = null; // dropdown choice — survives re-renders before "Load"
 let showEveryone = false;
+let rosterError = null;   // why the attendance half is missing, if it is
+let rosterPartial = false; // scan stopped early (WCL hung) — history is short
+let rosterLoading = false; // attendance still in flight under a usable tab
 let deep = null;      // opt-in deep stats for the loaded card (see officer-stats.js)
 // Report code of the scan currently in flight, or null. A code (not a bool)
 // because the scan takes ~10s: the officer can load a different report while
@@ -257,7 +260,14 @@ function cardHtml(c) {
 }
 
 function rosterHtml() {
-  if (!roster) return '<p class="sub">Attendance not loaded.</p>';
+  if (rosterLoading) {
+    return '<p class="sub" role="status">⏳ Loading attendance… (Warcraft Logs is slow on this endpoint)</p>';
+  }
+  if (!roster) {
+    // The report card above still works — say so, and offer just this retry.
+    return `<p class="sub">${esc(rosterError ?? "Attendance not loaded.")}
+      ${rosterError ? ' <button id="off-roster-retry" class="linklike" type="button">retry attendance</button>' : ""}</p>`;
+  }
   const rows = roster.rows.filter((r) => showEveryone || r.count >= MIN_RAIDS);
   const body = rows.map((r) => `
     <tr>
@@ -273,7 +283,11 @@ function rosterHtml() {
       <tbody>${body}</tbody>
     </table>
     <p class="csi-hint">${rows.length} of ${roster.rows.length} logged players shown.
-      Streak = consecutive most-recent guild reports attended.</p>`;
+      Streak = consecutive most-recent guild reports attended.
+      ${rosterPartial
+        ? '<span class="warn">⚠ Warcraft Logs stopped responding partway — this covers fewer raids than usual. '
+          + '<button id="off-roster-retry" class="linklike" type="button">retry</button></span>'
+        : ""}</p>`;
 }
 
 // --- data ------------------------------------------------------------------
@@ -284,16 +298,53 @@ async function init() {
   if (initStarted) return;
   initStarted = true;
   loading("Loading guild data…");
+
+  // Two independent halves, rendered as they arrive — NOT awaited together.
+  // The report picker answers in ~0.3s while WCL's guild attendance endpoint
+  // intermittently hangs for minutes (measured 2026-07-24: 352s, and 1019s for
+  // both halves together). Waiting on both is what made clicking the tab look
+  // like a timeout: nothing painted until the slow half finally gave up.
+  // Attendance is fired and forgotten here, and redraws underneath a tab that
+  // is already usable. Guarded so retrying the picker can't start a second
+  // attendance scan alongside one still in flight.
+  if (!roster && !rosterLoading) loadRoster();
+
   try {
-    const [reportList, attMap] = await Promise.all([listGuildReports(20), getAttendanceMap()]);
-    reports = reportList ?? [];
-    roster = attMap ? buildRoster(attMap, { limit: CONFIG.OFFICER_ROSTER_REPORTS }) : null;
-    view(attMap ? undefined : `Guild "${CONFIG.GUILD_NAME}" was not found on Warcraft Logs.`);
+    reports = (await listGuildReports(20)) ?? [];
+    view();
   } catch (e) {
-    initStarted = false; // allow retry on next tab open
-    root.innerHTML = `<div class="csi-home"><p class="csi-error">${esc(msg(e))}</p>
-      <p class="csi-or"><button id="off-retry" class="linklike" type="button">try again</button></p></div>`;
+    // Even with no picker, paint now and let the roster arrive underneath —
+    // awaiting it here is exactly the multi-minute hang this rework removes.
+    reports = [];
+    initStarted = false; // the picker can be retried
+    view(`${msg(e)} — the report picker is unavailable.`);
   }
+}
+
+// Loads (or reloads) just the attendance half, redrawing when it settles.
+async function loadRoster() {
+  rosterLoading = true;
+  rosterError = null;
+  try {
+    const attMap = await getAttendanceMap();
+    roster = attMap ? buildRoster(attMap, { limit: CONFIG.OFFICER_ROSTER_REPORTS }) : null;
+    rosterPartial = !!attMap?.partial;
+    if (!attMap) rosterError = `Guild "${CONFIG.GUILD_NAME}" was not found on Warcraft Logs.`;
+  } catch (e) {
+    rosterError = msg(e);
+  } finally {
+    rosterLoading = false;
+  }
+  // Only redraw if the tab has actually rendered — otherwise init's own
+  // view() call, which comes later, would be clobbered by this one.
+  if (reports) view();
+}
+
+// Retry just the attendance half, leaving the report card alone.
+function retryRoster(btn) {
+  if (rosterLoading) return;
+  if (btn) { btn.disabled = true; btn.textContent = "retrying…"; }
+  loadRoster();
 }
 
 async function loadCard(code) {
@@ -363,6 +414,8 @@ root.addEventListener("click", (e) => {
     copyCard(e.target.closest("#off-copy"));
   } else if (e.target.closest("#off-retry")) {
     init();
+  } else if (e.target.closest("#off-roster-retry")) {
+    retryRoster(e.target.closest("#off-roster-retry"));
   }
 });
 
