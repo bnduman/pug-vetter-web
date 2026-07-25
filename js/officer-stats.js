@@ -35,6 +35,7 @@ import { postGraphQL } from "./wcl.js";
 import { isAvoidableHit, lookupRule } from "./csi/rules.js";
 import { RULE_SPELL_IDS } from "./csi/rule-ids.js";
 import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "./consumable-casts.js";
+import { RAID_DEBUFFS } from "./raid-debuffs.js";
 
 // Ability ids per filtered query. The table caps each player at 5 abilities,
 // so a batch of 4 can never be truncated.
@@ -46,6 +47,21 @@ const DEATHS_QUERY = `
 query($code: String!, $start: Float!, $end: Float!) {
   reportData { report(code: $code) {
     table(startTime: $start, endTime: $end, dataType: Deaths)
+  } }
+}`;
+
+// Enemy debuffs across the BOSS PULLS only — fightIDs, not a whole-report
+// window, because uptime is a percentage and the denominator has to be time
+// the raid was actually fighting a boss. Verified live: totalTime comes back
+// exactly equal to the summed length of the fights asked for.
+//
+// Unlike the per-player tables this file fights with elsewhere, the Debuffs
+// table is keyed by ABILITY, so the top-5-per-player cap does not apply
+// (measured: 46 rows for one pull, 72 across a night). One query is complete.
+const ENEMY_DEBUFFS_QUERY = (fightIDs) => `
+query($code: String!) {
+  reportData { report(code: $code) {
+    table(fightIDs: [${fightIDs.join(",")}], dataType: Debuffs, hostilityType: Enemies)
   } }
 }`;
 
@@ -112,6 +128,68 @@ export function deathsByPlayer(deathEntries, encounterFightIds) {
     out.set(d.id, e);
   }
   return out;
+}
+
+/** Union of possibly-overlapping intervals -> sorted, disjoint. Needed because
+ *  a debuff SLOT can be filled by several spells at once (a balance and a feral
+ *  druid both running Faerie Fire), and summing their uptimes would invent
+ *  coverage that never happened. */
+export function mergeBands(bands) {
+  const sorted = [...(bands ?? [])]
+    .filter((b) => b && b.endTime > b.startTime)
+    .sort((a, b) => a.startTime - b.startTime);
+  const out = [];
+  for (const b of sorted) {
+    const last = out[out.length - 1];
+    if (last && b.startTime <= last.endTime) last.endTime = Math.max(last.endTime, b.endTime);
+    else out.push({ startTime: b.startTime, endTime: b.endTime });
+  }
+  return out;
+}
+
+const sumBands = (bands) => bands.reduce((n, b) => n + (b.endTime - b.startTime), 0);
+
+/**
+ * Raid-debuff coverage over the boss pulls.
+ * @param auras      the Debuffs table's `auras` rows ({guid, name, totalUptime, bands})
+ * @param totalTime  the table's totalTime = summed boss-pull duration
+ * @param comp  the raid as [{class, spec}], so a slot nobody could apply is
+ *   reported as "no provider" rather than as a 0% failure. Pass null to skip
+ *   the check entirely. A player whose spec didn't resolve counts as a
+ *   possible provider — understating a gap is worse than asking about one.
+ * -> [{ key, label, effect, core, pct, uptimeMs, spells: [names], hasProvider }]
+ */
+export function debuffUptimes(auras, totalTime, comp = null, catalogue = RAID_DEBUFFS) {
+  const byId = new Map();
+  for (const a of auras ?? []) if (a?.guid != null) byId.set(a.guid, a);
+
+  return catalogue.map((slot) => {
+    const found = slot.ids.map((id) => byId.get(id)).filter(Boolean);
+    // Union across the slot's spells; each row's own bands are already the
+    // union across enemy targets (verified: sum(bands) === totalUptime).
+    const bands = mergeBands(found.flatMap((a) => a.bands ?? []));
+    // Fall back to the largest single totalUptime if bands are ever absent, so
+    // a missing field degrades to "understated" rather than to a false zero.
+    const uptimeMs = bands.length
+      ? sumBands(bands)
+      : Math.max(0, ...found.map((a) => a.totalUptime ?? 0));
+    const hasProvider = !comp || comp.some((m) =>
+      slot.providers.includes(m.class)
+      // Unknown spec (no talent data logged) can't disprove the provider.
+      && (!slot.specs || !m.spec || slot.specs.includes(m.spec)));
+    return {
+      key: slot.key,
+      label: slot.label,
+      effect: slot.effect,
+      core: slot.core,
+      providers: slot.providers,
+      specs: slot.specs ?? null,
+      hasProvider,
+      uptimeMs,
+      pct: totalTime > 0 ? Math.round((uptimeMs / totalTime) * 100) : null,
+      spells: found.map((a) => a.name).filter(Boolean),
+    };
+  });
 }
 
 /** Which abilities a hostile unit actually dealt, from a viewBy:Ability table.
@@ -271,6 +349,17 @@ export async function fetchDeaths(code, reportDurationMs, encounterFightIds) {
   const d = await postGraphQL(DEATHS_QUERY, { code, start: 0, end: reportDurationMs });
   const t = unwrap(d.reportData?.report?.table);
   return deathsByPlayer(t.entries, encounterFightIds);
+}
+
+/** Raid-debuff uptimes over the boss pulls. One query.
+ *  -> { rows, totalTime } or null when it can't be computed. */
+export async function fetchDebuffUptimes(code, encounterFightIds, comp = null) {
+  const ids = [...(encounterFightIds ?? [])];
+  if (!code || !ids.length) return null;
+  const d = await postGraphQL(ENEMY_DEBUFFS_QUERY(ids), { code });
+  const t = unwrap(d.reportData?.report?.table);
+  if (!t || !(t.totalTime > 0)) return null;
+  return { rows: debuffUptimes(t.auras, t.totalTime, comp), totalTime: t.totalTime };
 }
 
 const deepCache = new Map(); // code -> deep stats (session-only; it's expensive)

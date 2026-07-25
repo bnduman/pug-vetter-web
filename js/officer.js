@@ -9,6 +9,7 @@ import {
   buildRoster, fetchOfficerCard, listGuildReports, reportCardToDiscord,
 } from "./officer-data.js";
 import { fetchDeepStats } from "./officer-stats.js";
+import { mmss } from "./csi/format.js";
 import { CLASS_COLORS, ROLE_ICONS } from "./wcl-classes.js";
 
 const root = document.getElementById("officer");
@@ -192,6 +193,44 @@ function deepButton(c) {
     Analyse night</button>`;
 }
 
+// Raid-debuff coverage over the boss pulls. Raid-wide, so it's its own panel
+// rather than a per-player column. Thresholds are deliberately loose: a debuff
+// that has to be re-applied after every death or phase change never reads 100%.
+function debuffsHtml(c) {
+  if (!c.debuffs) {
+    return '<p class="csi-hint dim">Raid-debuff uptimes unavailable for this report.</p>';
+  }
+  const rows = c.debuffs.rows.map((d) => {
+    if (!d.hasProvider) {
+      const who = d.specs
+        ? `${d.specs.join("/")} ${d.providers.join("/")}`
+        : d.providers.join(" or ");
+      return `<tr class="dim">
+        <td>${esc(d.label)}</td>
+        <td class="mono">–</td>
+        <td colspan="2">no ${esc(who)} in the raid</td>
+      </tr>`;
+    }
+    const cls = d.pct >= 80 ? "ok" : d.pct >= 50 ? "warn" : "bad";
+    const bar = `<span class="off-bar"><span class="off-bar-fill ${cls}" style="width:${Math.min(100, d.pct)}%"></span></span>`;
+    return `<tr>
+      <td>${esc(d.label)}${d.core ? "" : ' <span class="dim" title="Situational — nice to have, not expected every pull">·</span>'}</td>
+      <td class="mono ${cls}">${d.pct}%</td>
+      <td>${bar}</td>
+      <td class="dim">${esc(d.spells.join(", ") || "never applied")}</td>
+    </tr>`;
+  }).join("");
+  return `
+    <table class="csi-table off-debuffs">
+      <thead><tr><th>Raid debuff</th><th>Uptime</th><th></th><th>Applied as</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="csi-hint">Uptime across the <b>${c.fights.length} boss pulls</b> only (${mmss(c.debuffs.totalTime)} of fighting),
+      not the whole night — downtime between pulls would make everything look terrible.
+      A row greys out when nobody in the raid could apply it. Measured on any enemy in the
+      pull, so adds can flatter a debuff that never reached the boss.</p>`;
+}
+
 function cardHtml(c) {
   if (!c.fights.length) {
     return `<p class="sub">「${esc(c.title)}」 has no boss pulls — nothing to grade.
@@ -256,7 +295,9 @@ function cardHtml(c) {
            tank and only counts against everyone else — it's damage from tracked boss mechanics, so an
            ability the catalogue doesn't know isn't counted (regenerate with <code>npm run gen:rule-ids</code>).
            <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.`
-        : "Avoidable damage, interrupts and consumables used need the deep scan above."}</p>`;
+        : "Avoidable damage, interrupts and consumables used need the deep scan above."}</p>
+    <h4 class="off-h4">Raid debuffs</h4>
+    ${debuffsHtml(c)}`;
 }
 
 function rosterHtml() {

@@ -15,7 +15,7 @@
 import { CONFIG } from "./config.js";
 import { cacheGet, cacheSet, postGraphQL } from "./wcl.js";
 import { buildRaidPrep, classifyConsumables } from "./csi/prep.js";
-import { fetchDeaths } from "./officer-stats.js";
+import { fetchDeaths, fetchDebuffUptimes } from "./officer-stats.js";
 
 // ---------------------------------------------------------------------------
 // Per-fight consumable presence from combatantinfo rows ({fight, sourceID,
@@ -124,6 +124,15 @@ export function reportCardToDiscord(card) {
   if (partial.length) lines.push(`⚗️ Single elixir, no flask/pair: ${partial.join(", ")}`);
   lines.push(`🍖 Food on half the pulls or less: ${foodShame.join(", ") || "nobody 🎉"}`);
   lines.push(`✨ Missing enchants: ${enchShame.join(", ") || "nobody 🎉"}`);
+  // Only debuffs somebody could actually apply, and only the ones worth a
+  // callout — a full checklist would drown the message.
+  const weakDebuffs = (card.debuffs?.rows ?? [])
+    .filter((d) => d.hasProvider && d.core && d.pct < 80)
+    .sort((a, b) => a.pct - b.pct)
+    .map((d) => `${d.label} ${d.pct}%`);
+  if (card.debuffs) {
+    lines.push(`🎯 Raid debuffs under 80%: ${weakDebuffs.join(", ") || "all covered 🎉"}`);
+  }
   return lines.join("\n");
 }
 
@@ -277,9 +286,27 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
     p.deaths = deathsOk ? (deathsById.get(p.id) ?? { total: 0, boss: 0, trash: 0 }) : null;
   }
 
+  // Raid-debuff uptimes over the boss pulls (one query). Cheap because the
+  // Debuffs table is ability-keyed, so one call covers the whole night.
+  // Provider classes come from the roster we already have, so a debuff nobody
+  // could apply reads as "no <class>" instead of as a 0% failure.
+  onProgress("Reading raid debuffs…");
+  // Spec matters as much as class: Misery needs a SHADOW priest, Improved
+  // Scorch a FIRE mage. We already resolved both, so pass them through.
+  const comp = prep.players
+    .filter((p) => p.class)
+    .map((p) => ({ class: p.class, spec: p.talents?.spec ?? null }));
+  let debuffs = null;
+  try {
+    debuffs = await fetchDebuffUptimes(code, new Set(fightIDs), comp);
+  } catch {
+    debuffs = null; // a bonus panel; never fail the card over it
+  }
+
   const withData = prep.players.filter((p) => p.perFight);
   const card = {
     deathsOk,
+    debuffs,
     // Whole-report window, for the opt-in deep scan (which covers trash too).
     reportDurationMs: (rep?.endTime ?? 0) - (rep?.startTime ?? 0),
     code,

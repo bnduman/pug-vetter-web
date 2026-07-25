@@ -7,7 +7,8 @@ import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/offi
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
   abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
-  consumablesFromCasts, deathsByPlayer, interruptsFromTable,
+  consumablesFromCasts, deathsByPlayer, debuffUptimes, interruptsFromTable,
+  mergeBands,
 } from "../js/officer-stats.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
@@ -233,6 +234,73 @@ test("avoidableFromDamageTaken: role-aware, and sums only tracked mechanics", ()
   assert.equal(r.get(1).abilities.get("Cave In").total, 5000);
   assert.equal(r.get(2).avoidable, 0);      // frontal on the tank: expected
   assert.equal(r.get(3).avoidable, 4000);   // same hit on a dps: avoidable
+});
+
+// --- raid debuff uptimes ------------------------------------------------------
+
+const band = (startTime, endTime) => ({ startTime, endTime });
+
+test("mergeBands: unions overlapping and touching intervals", () => {
+  assert.deepEqual(mergeBands([band(50, 70), band(0, 10), band(5, 20), band(20, 30)]),
+    [band(0, 30), band(50, 70)]);
+  assert.deepEqual(mergeBands([band(5, 5)]), []); // zero-length is not coverage
+  assert.deepEqual(mergeBands(null), []);
+});
+
+test("debuffUptimes: a slot's spells are unioned, never summed", () => {
+  // Both druid flavours of Faerie Fire up at the same time must be 50%, not
+  // 100% — summing their uptimes would invent coverage that never happened.
+  const auras = [
+    { guid: 26993, name: "Faerie Fire", totalUptime: 500, bands: [band(0, 500)] },
+    { guid: 27011, name: "Faerie Fire (Feral)", totalUptime: 500, bands: [band(250, 750)] },
+  ];
+  const [ff] = debuffUptimes(auras, 1500, [{ class: "Druid", spec: "Feral Combat" }],
+    [{ key: "faerie", label: "Faerie Fire", ids: [26993, 27011], providers: ["Druid"], effect: "", core: true }]);
+  assert.equal(ff.uptimeMs, 750);  // union 0..750, not 1000
+  assert.equal(ff.pct, 50);
+  assert.deepEqual(ff.spells, ["Faerie Fire", "Faerie Fire (Feral)"]);
+  assert.equal(ff.hasProvider, true);
+});
+
+test("debuffUptimes: a slot nobody can apply is flagged, not scored as failure", () => {
+  const cat = [
+    { key: "wc", label: "Winter's Chill", ids: [12579], providers: ["Mage"], effect: "", core: false },
+    { key: "misery", label: "Misery", ids: [33200], providers: ["Priest"], effect: "", core: true },
+  ];
+  const misery900 = [{ guid: 33200, name: "Misery", totalUptime: 900, bands: [band(0, 900)] }];
+  const [wc, misery] = debuffUptimes(misery900, 1000,
+    [{ class: "Priest", spec: "Shadow" }, { class: "Warrior", spec: "Fury" }], cat);
+  assert.equal(wc.hasProvider, false);   // no mage present
+  assert.equal(wc.pct, 0);
+  assert.deepEqual(wc.spells, []);
+  assert.equal(misery.hasProvider, true);
+  assert.equal(misery.pct, 90);
+  // with no comp information, nothing is excused
+  assert.equal(debuffUptimes([], 1000, null, cat)[0].hasProvider, true);
+});
+
+test("debuffUptimes: spec decides the provider, and unknown spec stays lenient", () => {
+  // Misery is a SHADOW priest talent: a raid of healer priests can't supply it,
+  // so 0% is a comp fact and must not read as a failure.
+  const cat = [{ key: "misery", label: "Misery", ids: [33200], providers: ["Priest"],
+    specs: ["Shadow"], effect: "", core: true }];
+  const healersOnly = [{ class: "Priest", spec: "Holy" }, { class: "Priest", spec: "Discipline" }];
+  assert.equal(debuffUptimes([], 1000, healersOnly, cat)[0].hasProvider, false);
+
+  const withShadow = [...healersOnly, { class: "Priest", spec: "Shadow" }];
+  assert.equal(debuffUptimes([], 1000, withShadow, cat)[0].hasProvider, true);
+
+  // no talent data logged -> can't disprove it, so still ask the question
+  assert.equal(debuffUptimes([], 1000, [{ class: "Priest", spec: null }], cat)[0].hasProvider, true);
+  // wrong class is never a provider, spec or not
+  assert.equal(debuffUptimes([], 1000, [{ class: "Mage", spec: "Fire" }], cat)[0].hasProvider, false);
+});
+
+test("debuffUptimes: falls back to totalUptime when bands are absent", () => {
+  const cat = [{ key: "m", label: "Misery", ids: [33200], providers: ["Priest"], effect: "", core: true }];
+  const [row] = debuffUptimes([{ guid: 33200, name: "Misery", totalUptime: 400 }], 800, null, cat);
+  assert.equal(row.uptimeMs, 400); // understated-but-honest, never a false zero
+  assert.equal(row.pct, 50);
 });
 
 test("abilityHostility: Boss/NPC sources are hostile, player-only is not", () => {
