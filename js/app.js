@@ -375,10 +375,15 @@ function renderRosterCard(r) {
   const warns = [];
   if (r.missEnch) warns.push(`✗${r.missEnch}`);
   if (r.emptySock) warns.push(`◇${r.emptySock}`);
-  return `<div class="rcard" draggable="true" data-id="${esc(r.id)}" style="border-left-color:${r.color}">
-    <span class="rname" style="color:${r.color}">${esc(r.name)}</span>
+  // r.color and the warning counts are written by us from internal constants,
+  // but the roster is PERSISTED and read back with only `id` validated, so by
+  // the time it renders it has crossed a trust boundary. Escaped so a hand-
+  // edited localStorage entry can't break out of the style attribute.
+  const color = esc(r.color ?? "");
+  return `<div class="rcard" draggable="true" data-id="${esc(r.id)}" style="border-left-color:${color}">
+    <span class="rname" style="color:${color}">${esc(r.name)}</span>
     <span class="rmeta">${role}${esc(meta)}</span>
-    ${warns.length ? `<span class="rwarn" title="missing enchants / empty sockets">${warns.join(" ")}</span>` : ""}
+    ${warns.length ? `<span class="rwarn" title="missing enchants / empty sockets">${esc(warns.join(" "))}</span>` : ""}
     <button class="rx" type="button" title="Remove from roster">×</button>
   </div>`;
 }

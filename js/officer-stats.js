@@ -61,7 +61,7 @@ query($code: String!, $start: Float!, $end: Float!) {
 const ENEMY_DEBUFFS_QUERY = (fightIDs) => `
 query($code: String!) {
   reportData { report(code: $code) {
-    table(fightIDs: [${fightIDs.join(",")}], dataType: Debuffs, hostilityType: Enemies)
+    table(fightIDs: [${nums(fightIDs).join(",")}], dataType: Debuffs, hostilityType: Enemies)
   } }
 }`;
 
@@ -82,13 +82,19 @@ query($code: String!, $start: Float!, $end: Float!) {
   } }
 }`;
 
+// Anything interpolated into a query STRING is coerced to a number first, so
+// "these are ids we control" is enforced rather than assumed. They already are
+// (catalogue keys via .map(Number), and fight ids from WCL), but these builders
+// take plain arrays and nothing else stops a caller passing something else.
+const nums = (ids) => (ids ?? []).map(Number).filter(Number.isFinite);
+
 // filterExpression is interpolated (not a variable) because WCL parses it
-// server-side; ids are numbers we control, never user input.
+// server-side.
 const FILTERED_TABLE_QUERY = (dataType, ids) => `
 query($code: String!, $start: Float!, $end: Float!) {
   reportData { report(code: $code) {
     table(startTime: $start, endTime: $end, dataType: ${dataType},
-          filterExpression: "ability.id in (${ids.join(", ")})")
+          filterExpression: "ability.id in (${nums(ids).join(", ")})")
   } }
 }`;
 
