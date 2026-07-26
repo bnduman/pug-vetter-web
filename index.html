@@ -9,6 +9,13 @@
 </head>
 <body>
 
+<!-- One persistent live region for the whole app. Screen readers watch a live
+     region for TEXT CHANGES; a fresh node inserted with its message already in
+     it is unreliably announced, and the tab views rebuild their markup wholesale
+     on every render. So announcements are routed here (js/a11y.js) instead, and
+     it lives outside the tab panels so a hidden tab can never mute it. -->
+<div id="a11y-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
 <nav class="tabs" id="tabs" role="tablist" aria-label="Views">
   <button class="tab active" type="button" role="tab" id="tab-vetter" aria-controls="view-vetter" aria-selected="true" data-tab="vetter">⚔️ PuG Vetter</button>
   <button class="tab" type="button" role="tab" id="tab-autopsy" aria-controls="view-autopsy" aria-selected="false" data-tab="autopsy">🔬 Wipe Autopsy</button>

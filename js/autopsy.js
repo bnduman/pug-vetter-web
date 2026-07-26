@@ -8,6 +8,7 @@ import { actorIndex, mmss, num } from "./csi/format.js";
 import { summarizeFight } from "./csi/summary.js";
 import { toDiscordMarkdown } from "./csi/discord.js";
 import { gruulDemo } from "./csi/demo.js";
+import { announce } from "./a11y.js";
 import { QUALITY_COLORS } from "./analyze.js";
 import { ENCHANT_SPELLS } from "./enchant-spells.js";
 import { CLASS_COLORS, ROLE_ICONS } from "./wcl-classes.js";
@@ -51,8 +52,11 @@ function home(error, urlValue) {
     </div>`;
 }
 
+// Announced through the app's one persistent live region rather than from this
+// markup, which is replaced on every render (see js/a11y.js).
 function loading(text) {
-  root.innerHTML = `<div class="csi-loading" role="status" aria-live="polite">🔍 ${esc(text)}</div>`;
+  announce(text);
+  root.innerHTML = `<div class="csi-loading">🔍 ${esc(text)}</div>`;
 }
 
 function overview(error) {
@@ -410,8 +414,11 @@ async function analyze(input) {
       return;
     }
     overview();
+    // The spinner going away is silent; say what arrived.
+    announce(`Report loaded: ${ov.title}, ${ov.fights.length} boss fights.`);
   } catch (e) {
     home(msg(e), input);
+    announce(`Could not load that report: ${msg(e)}`);
   }
 }
 
@@ -428,10 +435,13 @@ async function navigateFight(fightId) {
       };
     } catch (e) {
       overview(msg(e));
+      announce(`Could not load that pull: ${msg(e)}`);
       return;
     }
   }
   fightView(fightId);
+  const f = report.fights.find((x) => x.id === fightId);
+  if (f) announce(`${f.bossName} ${f.kill ? "kill" : "wipe"} analysed.`);
 }
 
 async function copySummary(btn) {

@@ -9,6 +9,7 @@ import {
   buildRoster, fetchOfficerCard, listGuildReports, reportCardToDiscord,
 } from "./officer-data.js";
 import { fetchDeepStats } from "./officer-stats.js";
+import { announce } from "./a11y.js";
 import { mmss } from "./csi/format.js";
 import { CLASS_COLORS, ROLE_ICONS } from "./wcl-classes.js";
 
@@ -164,8 +165,12 @@ function usedCell(p) {
 
 // --- screens ---------------------------------------------------------------
 
+// The visible spinner carries no live-region role of its own: this markup is
+// replaced wholesale on every render, so announcing from it is unreliable.
+// announce() drives the one persistent region instead.
 function loading(text) {
-  root.innerHTML = `<div class="csi-loading" role="status" aria-live="polite">🛡️ ${esc(text)}</div>`;
+  announce(text);
+  root.innerHTML = `<div class="csi-loading">🛡️ ${esc(text)}</div>`;
 }
 
 // view() replaces the whole root, which drops focus. That matters because the
@@ -206,7 +211,7 @@ function renderView(error) {
         <button id="off-load" type="button">Load report card</button>
       </div>
       <div id="off-card">${cardLoading
-        ? `<p class="csi-loading" role="status" aria-live="polite">🛡️ ${esc(cardLoading)}</p>`
+        ? `<p class="csi-loading">🛡️ ${esc(cardLoading)}</p>`
         : card ? cardHtml(card) : '<p class="sub">Pick a raid night and load its report card.</p>'}</div>
 
       <h3 class="off-h3">Attendance <span class="dim">— last ${roster?.totalReports ?? 0} guild reports</span></h3>
@@ -359,7 +364,7 @@ function cardHtml(c) {
 
 function rosterHtml() {
   if (rosterLoading) {
-    return '<p class="sub" role="status">⏳ Loading attendance… (Warcraft Logs is slow on this endpoint)</p>';
+    return '<p class="sub">⏳ Loading attendance… (Warcraft Logs is slow on this endpoint)</p>';
   }
   if (!roster) {
     // The report card above still works — say so, and offer just this retry.
@@ -423,13 +428,20 @@ async function init() {
 async function loadRoster() {
   rosterLoading = true;
   rosterError = null;
+  announce("Loading attendance…");
   try {
     const attMap = await getAttendanceMap();
     roster = attMap ? buildRoster(attMap, { limit: CONFIG.OFFICER_ROSTER_REPORTS }) : null;
     rosterPartial = !!attMap?.partial;
     if (!attMap) rosterError = `Guild "${CONFIG.GUILD_NAME}" was not found on Warcraft Logs.`;
+    // This half lands well after first paint, so its arrival is easy to miss.
+    announce(roster
+      ? `Attendance loaded: ${roster.rows.length} players over ${roster.totalReports} raids`
+        + `${rosterPartial ? ", partial — Warcraft Logs stopped responding" : ""}.`
+      : rosterError);
   } catch (e) {
     rosterError = msg(e);
+    announce(`Attendance failed: ${rosterError}`);
   } finally {
     rosterLoading = false;
   }
@@ -458,11 +470,13 @@ async function loadCard(code) {
   cardLoading = "Loading report card…";
   deep = null; // deep stats belong to one report; never carry them across
   card = null; // the old card belongs to a different report
+  announce(cardLoading);
   view();
   try {
     const result = await fetchOfficerCard(code, (text) => {
       if (cardLoadCode !== code) return;
       cardLoading = text;
+      announce(text); // each step is a distinct message, so this isn't chatter
       view();
     });
     if (cardLoadCode !== code) return; // a newer load took over; drop this one
@@ -470,12 +484,16 @@ async function loadCard(code) {
     cardLoading = null;
     card = result;
     view();
+    // A spinner disappearing is silent; say the wait is over and what landed.
+    announce(`Report card ready: ${result.title}, ${result.raidSize} raiders, `
+      + `${result.fights.length} boss pulls.`);
   } catch (e) {
     if (cardLoadCode !== code) return;
     cardLoadCode = null;
     cardLoading = null;
     card = null;
     view(msg(e));
+    announce(`Report card failed: ${msg(e)}`);
   }
 }
 
@@ -499,6 +517,9 @@ async function runDeep() {
     if (card?.code !== scanCode) return;
     deep = result;
     view();
+    announce(result.failed
+      ? `Night analysed with gaps: ${result.failed} of ${result.queries} query batches failed.`
+      : `Night analysed: ${result.queries} queries, trash included.`);
   } catch (e) {
     deepScanCode = null;
     if (card?.code === scanCode) view(msg(e));
