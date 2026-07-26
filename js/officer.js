@@ -27,6 +27,15 @@ let deep = null;      // opt-in deep stats for the loaded card (see officer-stat
 // because the scan takes ~10s: the officer can load a different report while
 // it runs, and the result must only ever land on the report it scanned.
 let deepScanCode = null;
+// Report code of the card fetch currently in flight, or null. Same reason as
+// deepScanCode: the result must only ever land on the report it was asked for.
+let cardLoadCode = null;
+// Progress text while a card fetch is in flight. It renders INSIDE the card
+// slot rather than through loading(), which blanks the whole tab: a card load
+// is 5 queries and an uncached report can take many seconds, and wiping the
+// picker and the attendance roster for that long — the two things the officer
+// was just reading — is a poor trade for a spinner.
+let cardLoading = null;
 const MIN_RAIDS = 3;  // roster filter: hide one-off pugs by default
 
 function esc(s) {
@@ -146,7 +155,24 @@ function loading(text) {
   root.innerHTML = `<div class="csi-loading" role="status" aria-live="polite">🛡️ ${esc(text)}</div>`;
 }
 
+// view() replaces the whole root, which drops focus. That matters because the
+// attendance half lands a second or two AFTER first paint and redraws
+// underneath an already-usable tab: without this, an officer who went straight
+// for the report picker gets it closed under them. Only ever restores focus to
+// something that already had it inside this tab, so it can never steal focus
+// from the vetter tab or the page at large.
+function withFocusPreserved(render) {
+  const active = document.activeElement;
+  const id = active && active.id && root.contains(active) ? active.id : null;
+  render();
+  if (id) document.getElementById(id)?.focus();
+}
+
 function view(error) {
+  withFocusPreserved(() => renderView(error));
+}
+
+function renderView(error) {
   if (!CONFIG.GUILD_NAME) {
     root.innerHTML = `<div class="csi-home"><h2>Officer tools</h2>
       <p class="sub">Set <code>GUILD_NAME</code> in js/config.js to enable the officer view.</p></div>`;
@@ -166,7 +192,9 @@ function view(error) {
         <select id="off-report" aria-label="Guild report">${options}</select>
         <button id="off-load" type="button">Load report card</button>
       </div>
-      <div id="off-card">${card ? cardHtml(card) : '<p class="sub">Pick a raid night and load its report card.</p>'}</div>
+      <div id="off-card">${cardLoading
+        ? `<p class="csi-loading" role="status" aria-live="polite">🛡️ ${esc(cardLoading)}</p>`
+        : card ? cardHtml(card) : '<p class="sub">Pick a raid night and load its report card.</p>'}</div>
 
       <h3 class="off-h3">Attendance <span class="dim">— last ${roster?.totalReports ?? 0} guild reports</span></h3>
       <label class="off-toggle"><input type="checkbox" id="off-all" ${showEveryone ? "checked" : ""} />
@@ -396,12 +424,33 @@ function retryRoster(btn) {
 
 async function loadCard(code) {
   if (!code) return;
-  loading("Loading report card…");
+  // Same hazard runDeep guards against, one function down: a card load is
+  // several queries and an uncached report can take seconds, so the officer
+  // can pick a different one (or one already in the session cache, which
+  // answers instantly) while this is still in flight. Without a guard the
+  // slower load lands last and shows report A under a picker reading B — and
+  // its progress callbacks wipe B's rendered card back to a spinner meanwhile.
+  if (cardLoadCode === code) return; // this exact report is already loading
+  cardLoadCode = code;
+  cardLoading = "Loading report card…";
   deep = null; // deep stats belong to one report; never carry them across
+  card = null; // the old card belongs to a different report
+  view();
   try {
-    card = await fetchOfficerCard(code, (text) => loading(text));
+    const result = await fetchOfficerCard(code, (text) => {
+      if (cardLoadCode !== code) return;
+      cardLoading = text;
+      view();
+    });
+    if (cardLoadCode !== code) return; // a newer load took over; drop this one
+    cardLoadCode = null;
+    cardLoading = null;
+    card = result;
     view();
   } catch (e) {
+    if (cardLoadCode !== code) return;
+    cardLoadCode = null;
+    cardLoading = null;
     card = null;
     view(msg(e));
   }
