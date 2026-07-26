@@ -109,14 +109,19 @@ function deathCell(p) {
 function avoidCell(p) {
   if (!deep) return "";
   const a = deep.avoidable.get(p.id);
-  if (!a || !a.taken) return '<td class="mono dim">–</td>';
-  const pct = a.taken ? Math.round((a.avoidable / a.taken) * 100) : 0;
+  if (!a || (!a.avoidable && !a.taken)) return '<td class="mono dim">–</td>';
   if (!a.avoidable) return '<td class="mono ok">0</td>';
+  // `taken` comes only from the unfiltered pass. If that one job was the batch
+  // that failed, the damage is still real — show it without a made-up share
+  // rather than returning "–" and hiding it.
+  const pct = a.taken ? Math.round((a.avoidable / a.taken) * 100) : null;
   const worst = [...a.abilities.entries()].sort((x, y) => y[1].total - x[1].total);
   const label = worst.slice(0, 2).map(([n]) => n).join(", ");
-  const cls = pct >= 40 ? "bad" : pct >= 15 ? "warn" : "";
-  const title = worst.map(([n, v]) => `${n}: ${num(v.total)}`).join("\n");
-  return `<td class="mono ${cls}" title="${esc(title)}">${num(a.avoidable)} <span class="dim">(${pct}%)</span>`
+  const cls = pct == null ? "" : pct >= 40 ? "bad" : pct >= 15 ? "warn" : "";
+  const title = worst.map(([n, v]) => `${n}: ${num(v.total)}`).join("\n")
+    + (pct == null ? "\n(share of all damage taken unavailable)" : "");
+  const share = pct == null ? '<span class="dim">(?%)</span>' : `<span class="dim">(${pct}%)</span>`;
+  return `<td class="mono ${cls}" title="${esc(title)}">${num(a.avoidable)} ${share}`
     + `<span class="off-cons">${esc(label)}</span></td>`;
 }
 
@@ -300,6 +305,13 @@ function cardHtml(c) {
     </tr>`;
   }).join("");
 
+  // A degraded scan still renders per-player numbers, and a number with no
+  // caveat reads as authoritative. The button above says a batch failed; mark
+  // the affected columns too, so a low figure can't be mistaken for a good one.
+  const partialMark = deep?.failed
+    ? ' <span class="warn" title="Some query batches failed — these totals are incomplete">⚠</span>'
+    : "";
+
   return `
     <div class="csi-stats">
       ${chip("Raiders", c.raidSize)}
@@ -313,9 +325,9 @@ function cardHtml(c) {
     <table class="csi-table">
       <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th>
         <th title="Deaths across the whole night, trash included">Deaths</th>
-        ${deep ? '<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg</th>'
-          + '<th title="Enemy casts interrupted">Interrupts</th>'
-          + '<th title="Potions, healthstones and drums actually consumed">Used</th>' : ""}</tr></thead>
+        ${deep ? `<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg${partialMark}</th>`
+          + `<th title="Enemy casts interrupted">Interrupts${partialMark}</th>`
+          + `<th title="Potions, healthstones and drums actually consumed">Used${partialMark}</th>` : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
@@ -330,6 +342,9 @@ function cardHtml(c) {
            ability the catalogue doesn't know isn't counted (regenerate with <code>npm run gen:rule-ids</code>).
            <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.`
         : "Avoidable damage, interrupts and consumables used need the deep scan above."}</p>
+    ${deep?.failed ? `<p class="csi-hint warn">⚠ ${deep.failed} of ${deep.queries} query batches failed,
+      so the ⚠ columns are <b>lower bounds</b> — a small number there may just be missing data.
+      Re-analyse above to fill them in.</p>` : ""}
     <h4 class="off-h4">Raid debuffs</h4>
     ${debuffsHtml(c)}`;
 }
