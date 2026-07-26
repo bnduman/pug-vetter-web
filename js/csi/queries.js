@@ -25,7 +25,6 @@ query($code: String!) {
         startTime
         endTime
         bossPercentage
-        fightPercentage
       }
     }
   }

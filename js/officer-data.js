@@ -153,7 +153,7 @@ query($name: String!, $serverSlug: String!, $serverRegion: String!) {
 const GUILD_REPORTS_QUERY = `
 query($guildID: Int!, $limit: Int!) {
   reportData { reports(guildID: $guildID, limit: $limit) {
-    data { code title startTime endTime zone { name } }
+    data { code title startTime zone { name } }
   } }
 }`;
 

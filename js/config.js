@@ -52,12 +52,33 @@ export const CONFIG = {
   // How many of the newest guild reports the officer attendance roster
   // grades against ("attended 12 of the last 20"). 0 = all scanned reports.
   OFFICER_ROSTER_REPORTS: 20,
-  // How many attendance pages to scan (25 raids per page).
+  // How many attendance pages to scan (25 raids per page). This is the single
+  // most expensive thing the site does — see the budget below before raising it.
   ATTENDANCE_MAX_PAGES: 4,
   ATTENDANCE_TTL_SECONDS: 21600, // refresh guild history every 6h
 
   // How long to cache lookups/zones in the browser, to spare the shared
   // WCL rate limit (3,600 points/hour across ALL visitors of this page).
+  //
+  // MEASURED COST PER ACTION (2026-07-25, live, points not queries — WCL bills
+  // query complexity, so counting requests understates the heavy ones):
+  //
+  //   guild attendance, 4 pages   75 pts   ~48/hour site-wide   AUTOMATIC
+  //   autopsy: open one pull      31 pts  ~116/hour             10k events
+  //   deep scan "Analyse night"   20 pts  ~180/hour             opt-in, 21 queries
+  //   vet a character             17 pts  ~210/hour
+  //   officer report card          5 pts  ~718/hour
+  //   autopsy: open a report       1 pt  ~3529/hour
+  //
+  // The ranking is worth internalising: attendance costs 15x a report card and
+  // is the ONE thing that runs without being asked for (on opening the officer
+  // tab). It's cached for 6h per browser, so the exposure is new visitors, not
+  // repeat use — comfortable for a guild-sized audience, and the first thing to
+  // look at if the key ever starts hitting 429s.
+  //
+  // Not "optimised" deliberately: those 4 pages are shared with the vetter's
+  // "raided with me", which wants deep history. Fetching fewer pages for the
+  // officer tab would just make a user who visits both tabs pay twice.
   LOOKUP_TTL_SECONDS: 600,
   ZONES_TTL_SECONDS: 86400,
 };
