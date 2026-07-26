@@ -99,10 +99,10 @@ function overview(error) {
         ${stat("Avg wipe", mmss(avg))}
       </div>
       ${common ? `<p class="sub">Most common wipe cause: <b>${esc(common)}</b></p>` : ""}
-      <table class="csi-table">
+      <div class="csi-scroll"><table class="csi-table">
         <thead><tr><th>#</th><th>Boss</th><th>Result</th><th>Duration</th><th>Main issue</th></tr></thead>
         <tbody>${tableRows}</tbody>
-      </table>
+      </table></div>
     </div>`;
 }
 

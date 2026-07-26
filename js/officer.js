@@ -47,7 +47,15 @@ function msg(e) {
   return e instanceof WCLError ? e.message : `Request failed: ${e}`;
 }
 
-const dateOf = (ts) => new Date(ts).toISOString().slice(0, 10);
+// LOCAL date in ISO shape. toISOString() would be UTC, which disagrees with
+// the vetter tab (toLocaleDateString, local) about the same raid — a late-night
+// pull lands on the previous day in one tab and not the other. ISO ordering is
+// kept because these are sorted, scanned lists rather than prose.
+const dateOf = (ts) => {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 // "N of M attended pulls" cell; green when perfect, amber at <= half.
 function ratioCell(perFight, key) {
@@ -260,10 +268,10 @@ function debuffsHtml(c) {
     </tr>`;
   }).join("");
   return `
-    <table class="csi-table off-debuffs">
+    <div class="csi-scroll"><table class="csi-table off-debuffs">
       <thead><tr><th>Raid debuff</th><th>Uptime</th><th></th><th>Applied as</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
     <p class="csi-hint">Uptime across the <b>${c.fights.length} boss pulls</b> only (${mmss(c.debuffs.totalTime)} of fighting),
       not the whole night — downtime between pulls would make everything look terrible.
       A row greys out when nobody in the raid could apply it. Measured on any enemy in the
@@ -322,14 +330,14 @@ function cardHtml(c) {
     </div>
     <button id="off-copy" class="secondary" type="button">Copy for Discord</button>
     ${deepButton(c)}
-    <table class="csi-table">
+    <div class="csi-scroll"><table class="csi-table">
       <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th>
         <th title="Deaths across the whole night, trash included">Deaths</th>
         ${deep ? `<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg${partialMark}</th>`
           + `<th title="Enemy casts interrupted">Interrupts${partialMark}</th>`
           + `<th title="Potions, healthstones and drums actually consumed">Used${partialMark}</th>` : ""}</tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
     <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
       each player attended (from per-pull combat snapshots), with what they ran.
       <span class="ok">Green</span> = flask or battle+guardian pair every pull;
@@ -368,10 +376,10 @@ function rosterHtml() {
       <td class="dim mono">${dateOf(r.lastTs)}</td>
     </tr>`).join("");
   return `
-    <table class="csi-table">
+    <div class="csi-scroll"><table class="csi-table">
       <thead><tr><th>Player</th><th>Raids</th><th>%</th><th>Streak</th><th>Last raid</th></tr></thead>
       <tbody>${body}</tbody>
-    </table>
+    </table></div>
     <p class="csi-hint">${rows.length} of ${roster.rows.length} logged players shown.
       Streak = consecutive most-recent guild reports attended.
       ${rosterPartial
