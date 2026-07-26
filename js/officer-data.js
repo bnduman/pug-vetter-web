@@ -303,10 +303,15 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
     .filter((p) => p.class)
     .map((p) => ({ class: p.class, spec: p.talents?.spec ?? null }));
   let debuffs = null;
+  let debuffsOk = true;
   try {
     debuffs = await fetchDebuffUptimes(code, new Set(fightIDs), comp);
+    // A null return with pulls present means the table came back unusable,
+    // which is a failure to retry — not a report that genuinely has no debuffs.
+    if (!debuffs) debuffsOk = false;
   } catch {
-    debuffs = null; // a bonus panel; never fail the card over it
+    debuffs = null;
+    debuffsOk = false; // a bonus panel; never fail the card over it
   }
 
   const withData = prep.players.filter((p) => p.perFight);
@@ -332,8 +337,10 @@ export async function fetchOfficerCard(code, onProgress = () => {}) {
     },
     players: prep.players,
   };
-  // A card whose deaths query failed isn't cached, so re-loading it actually
-  // retries instead of serving the same "no data" column all session.
-  if (deathsOk) cardCache.set(code, card);
+  // A card with ANY degraded half isn't cached, so re-loading it actually
+  // retries instead of serving the same "no data" column all session. This
+  // covers every optional extra, not just deaths — caching a card whose
+  // debuff query died would pin an empty panel for the whole session.
+  if (deathsOk && debuffsOk) cardCache.set(code, card);
   return card;
 }

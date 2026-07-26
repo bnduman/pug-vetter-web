@@ -6,6 +6,7 @@ export class WCLError extends Error {}
 
 // localStorage when in a browser, in-memory map under Node (smoke tests).
 const mem = new Map();
+let warnedAboutStorage = false;
 const store = {
   get(key) {
     try {
@@ -18,7 +19,16 @@ const store = {
     try {
       if (typeof localStorage !== "undefined") localStorage.setItem(key, raw);
       else mem.set(key, raw);
-    } catch { /* storage full/blocked — just skip caching */ }
+    } catch (err) {
+      // Storage full or blocked (private mode). The app still works — it just
+      // re-queries everything, which quietly burns the rate limit every visitor
+      // shares. Say so once so that's diagnosable instead of invisible.
+      if (!warnedAboutStorage) {
+        warnedAboutStorage = true;
+        console.warn(`[pug-vetter] caching is disabled (${err?.name ?? "storage error"}) — `
+          + "every lookup will re-query Warcraft Logs. Clearing site data usually fixes it.");
+      }
+    }
   },
 };
 

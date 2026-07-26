@@ -202,7 +202,9 @@ function deepButton(c) {
 // that has to be re-applied after every death or phase change never reads 100%.
 function debuffsHtml(c) {
   if (!c.debuffs) {
-    return '<p class="csi-hint dim">Raid-debuff uptimes unavailable for this report.</p>';
+    // Not cached in this state, so "load it again" really does re-query.
+    return `<p class="csi-hint warn">⚠ Raid-debuff uptimes couldn't be read for this report
+      — load it again to retry.</p>`;
   }
   const rows = c.debuffs.rows.map((d) => {
     if (!d.hasProvider) {

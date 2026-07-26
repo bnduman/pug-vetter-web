@@ -226,6 +226,11 @@ export async function vet(name, { onScorecard } = {}) {
     enchants: primary?.enchants ?? null, // primary set, for the roster card
     gearscore: maxGs,
   };
-  cacheSet(key, result);
+  // A lookup whose gear scan failed is NOT cached: pinning it would serve the
+  // same "gear unavailable" card for the full TTL, exactly what happened during
+  // the 2026-07-24 outage (the fix then was a manual vet7 -> vet8 key bump to
+  // flush results cached mid-outage). A genuinely gearless character — no
+  // recent reports, so nothing to scan — has gearError null and still caches.
+  if (!gearError) cacheSet(key, result);
   return result;
 }

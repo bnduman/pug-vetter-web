@@ -415,6 +415,59 @@ test("fetchDeepStats: a degraded scan is NOT cached, so a retry re-queries", asy
   }
 });
 
+test("fetchOfficerCard: a card whose debuff query failed is not cached", async () => {
+  // Every optional extra follows the same rule as deaths: a degraded card must
+  // never be pinned for the session, or the retry silently replays the hole.
+  const { fetchOfficerCard } = await import("../js/officer-data.js");
+  const realFetch = globalThis.fetch;
+  let debuffCalls = 0;
+  let debuffsHealthy = false;
+  const reply = (body) => ({ ok: true, status: 200, headers: new Map(), json: async () => body });
+
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes("oauth")) {
+      return reply({ access_token: "t", expires_in: 3600 });
+    }
+    const q = JSON.parse(opts.body).query;
+    if (/dataType: Debuffs/.test(q)) {
+      debuffCalls += 1;
+      if (!debuffsHealthy) return { ok: false, status: 500, headers: new Map(), text: async () => "boom" };
+      return reply({ data: { reportData: { report: { table: { data: { auras: [], totalTime: 1000 } } } } } });
+    }
+    if (/fights\(killType/.test(q)) {
+      return reply({ data: { reportData: { report: {
+        title: "T", startTime: 0, endTime: 1000, zone: { name: "Z" },
+        fights: [{ id: 1, name: "Boss", kill: true, startTime: 0, endTime: 1000 }],
+      } } } });
+    }
+    if (/playerDetails/.test(q)) {
+      return reply({ data: { reportData: { report: { playerDetails: { data: { playerDetails: {
+        tanks: [], healers: [], dps: [{ id: 1, name: "P", type: "Mage" }],
+      } } } } } } });
+    }
+    if (/CombatantInfo/.test(q)) {
+      return reply({ data: { reportData: { report: { events: { data: [], nextPageTimestamp: null } } } } });
+    }
+    return reply({ data: { reportData: { report: { table: { data: { entries: [] } } } } } }); // Deaths
+  };
+
+  try {
+    const bad = await fetchOfficerCard("CARDX", () => {});
+    assert.equal(bad.debuffs, null, "a failed debuff query yields no panel");
+    const after = debuffCalls;
+    debuffsHealthy = true;
+    const good = await fetchOfficerCard("CARDX", () => {});
+    assert.ok(debuffCalls > after, "reloading a degraded card must re-query, not serve the cache");
+    assert.ok(good.debuffs, "the retry should now produce a panel");
+    // ...and a healthy card IS cached.
+    const before = debuffCalls;
+    await fetchOfficerCard("CARDX", () => {});
+    assert.equal(debuffCalls, before, "a complete card should be served from cache");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("batchIds: batches stay under the table's top-5 ability cap", () => {
   const b = batchIds([1, 2, 3, 4, 5, 6, 7, 8, 9], 4);
   assert.deepEqual(b, [[1, 2, 3, 4], [5, 6, 7, 8], [9]]);

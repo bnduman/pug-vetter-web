@@ -20,13 +20,21 @@ const EVENT_DATA_TYPES = ["Deaths", "DamageTaken", "Healing", "Casts"];
 const MAX_EVENT_PAGES = 50;
 const TTL = CONFIG.LOOKUP_TTL_SECONDS;
 
-// Raw event streams are large (~1 MB/fight) and would blow the ~5 MB
-// localStorage quota after a few fights. Cache them in memory for the session
-// instead; only the small meta/playerDetails blobs go to localStorage.
+// Raw event streams are large and would blow the ~5 MB localStorage quota after
+// a few fights, so they live in memory for the session instead; only the small
+// meta/playerDetails blobs go to localStorage.
+//
+// Measured 2026-07-25 on a live SSC pull: 7,590 events = 988 KB, ~3.6s to
+// fetch. Never evicted, but it's bounded by the pulls the officer actually
+// opens — a fully-explored 16-pull night holds ~15 MB, which is cheap next to
+// re-fetching 3.6s per pull. Revisit only if that ceiling stops holding.
 const eventCache = new Map();
 
 async function fetchMeta(code) {
-  const key = `csi_meta_${code}`;
+  // "2": versioned like vet8/guild_att2 — this blob is the shape of
+  // REPORT_META_QUERY, so bump it whenever that query changes, or a stale
+  // entry without the new fields is served for the rest of its TTL.
+  const key = `csi_meta2_${code}`;
   const cached = cacheGet(key, TTL);
   if (cached) return cached;
   const data = await postGraphQL(REPORT_META_QUERY, { code });
