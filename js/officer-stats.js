@@ -9,8 +9,9 @@
 //   whole-report vs 132 summed per-encounter; the extra 24 are the trash
 //   deaths, so nothing is lost).
 //
-//   DEEP (~20 queries, opt-in): avoidable damage taken, interrupts, and
-//   consumables used — all across the WHOLE night, trash included.
+//   DEEP (~23 queries, opt-in): avoidable damage taken, interrupts, consumables
+//   used, and raid utility (nets / innervates / engineering bombs) — all across
+//   the WHOLE night, trash included.
 //
 // THE TRUNCATION TRAP that shapes this file: a WCL table returns only each
 // player's TOP 5 abilities. It is not a time-window limit and there is no
@@ -35,6 +36,7 @@ import { postGraphQL } from "./wcl.js";
 import { isAvoidableHit, lookupRule } from "./csi/rules.js";
 import { RULE_SPELL_IDS } from "./csi/rule-ids.js";
 import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "./consumable-casts.js";
+import { UTILITY_CASTS, UTILITY_CAST_IDS } from "./utility-casts.js";
 import { RAID_DEBUFFS } from "./raid-debuffs.js";
 
 // Ability ids per filtered query. The table caps each player at 5 abilities,
@@ -285,17 +287,30 @@ export function interruptsFromTable(table) {
   return out;
 }
 
-/** Consumables used, from a Casts table filtered to consumable ids.
- *  -> Map playerId -> { total, byGroup: {mana,healing,drums,utility}, items: Map label -> count } */
-export function consumablesFromCasts(entries, catalogue = CONSUMABLE_CASTS) {
+/** Every group a catalogue can produce, seeded at 0, so a player who cast one
+ *  thing still has the full shape (`byGroup.bombs === 0`, not undefined) and
+ *  callers never have to know which groups a catalogue happens to define. */
+function emptyGroups(catalogue) {
+  const seed = {};
+  for (const v of Object.values(catalogue)) seed[v.group] = 0;
+  return seed;
+}
+
+/** Count catalogued casts per player, from a Casts table filtered to that
+ *  catalogue's ids. Used for two different catalogues — CONSUMABLE_CASTS
+ *  (potions, stones, drums) and UTILITY_CASTS (nets, innervates, bombs) — which
+ *  is why it takes the catalogue rather than closing over one: each ignores the
+ *  other's ids, so one table can be counted into both without cross-talk.
+ *  -> Map playerId -> { total, byGroup: {group -> count}, items: Map label -> count } */
+export function castCountsByCatalogue(entries, catalogue = CONSUMABLE_CASTS) {
   const out = new Map();
   for (const p of entries ?? []) {
     if (p?.id == null) continue;
     const acc = out.get(p.id)
-      ?? { total: 0, byGroup: { mana: 0, healing: 0, drums: 0, utility: 0 }, items: new Map() };
+      ?? { total: 0, byGroup: emptyGroups(catalogue), items: new Map() };
     for (const a of p.abilities ?? []) {
       const known = catalogue[a.guid];
-      if (!known) continue; // an id we don't categorise isn't a consumable we count
+      if (!known) continue; // an id this catalogue doesn't categorise isn't its business
       const n = a.total ?? 0;
       acc.total += n;
       acc.byGroup[known.group] = (acc.byGroup[known.group] ?? 0) + n;
@@ -306,10 +321,12 @@ export function consumablesFromCasts(entries, catalogue = CONSUMABLE_CASTS) {
   return out;
 }
 
-function mergeConsumables(into, add) {
+/** Fold one castCountsByCatalogue() result into a running total. Seeds byGroup
+ *  from what arrives rather than from a fixed list, so it works for any
+ *  catalogue. */
+function mergeCastCounts(into, add) {
   for (const [id, v] of add) {
-    const e = into.get(id)
-      ?? { total: 0, byGroup: { mana: 0, healing: 0, drums: 0, utility: 0 }, items: new Map() };
+    const e = into.get(id) ?? { total: 0, byGroup: {}, items: new Map() };
     e.total += v.total;
     for (const g of Object.keys(v.byGroup)) e.byGroup[g] = (e.byGroup[g] ?? 0) + v.byGroup[g];
     for (const [k, n] of v.items) e.items.set(k, (e.items.get(k) ?? 0) + n);
@@ -371,19 +388,24 @@ export async function fetchDebuffUptimes(code, encounterFightIds, comp = null) {
 const deepCache = new Map(); // code -> deep stats (session-only; it's expensive)
 
 /**
- * Per-player avoidable damage, interrupts and consumables for the WHOLE night,
- * trash included. Opt-in: ~20 filtered queries against a shared rate limit.
- * -> { avoidable, interrupts, consumables: Map id->{...}, queries, failed }
+ * Per-player avoidable damage, interrupts, consumables and raid utility for the
+ * WHOLE night, trash included. Opt-in: ~23 filtered queries against a shared
+ * rate limit.
+ * -> { avoidable, interrupts, consumables, utility: Map id->{...}, queries, failed }
  */
 export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(), onProgress = () => {}) {
   if (deepCache.has(code)) return deepCache.get(code);
   if (!code || !(reportDurationMs > 0)) {
-    return { avoidable: new Map(), interrupts: new Map(), consumables: new Map(), queries: 0, failed: 0 };
+    return {
+      avoidable: new Map(), interrupts: new Map(), consumables: new Map(),
+      utility: new Map(), queries: 0, failed: 0,
+    };
   }
   const vars = { code, start: 0, end: reportDurationMs };
   const avoidable = new Map();
   const interrupts = new Map();
   const consumables = new Map();
+  const utility = new Map();
 
   // Each job is one query. Interrupts needs no filter — its table is keyed by
   // the interrupted spell, not by a per-player ability list, so the top-5 cap
@@ -415,9 +437,18 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
       query: FILTERED_TABLE_QUERY("DamageTaken", ids),
       apply: (t) => mergeAvoidable(avoidable, avoidableFromDamageTaken(t.entries, roleById)),
     })),
-    ...batchIds(CONSUMABLE_CAST_IDS).map((ids) => ({
+    // Consumables and raid utility are both Casts tables filtered by ability id,
+    // so they share ONE pool of batches instead of running two sets: each table
+    // is counted into both catalogues, and each catalogue ignores the other's
+    // ids. Batching the pools together rather than separately also avoids a
+    // half-empty trailing batch per pool — 42 ids cost 11 queries this way, 12
+    // as two pools.
+    ...batchIds([...CONSUMABLE_CAST_IDS, ...UTILITY_CAST_IDS]).map((ids) => ({
       query: FILTERED_TABLE_QUERY("Casts", ids),
-      apply: (t) => mergeConsumables(consumables, consumablesFromCasts(t.entries)),
+      apply: (t) => {
+        mergeCastCounts(consumables, castCountsByCatalogue(t.entries, CONSUMABLE_CASTS));
+        mergeCastCounts(utility, castCountsByCatalogue(t.entries, UTILITY_CASTS));
+      },
     })),
   ];
 
@@ -436,7 +467,7 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   }
 
   // +1 for the ability-sources query above, which the card counts too.
-  const result = { avoidable, interrupts, consumables, queries: jobs.length + 1, failed };
+  const result = { avoidable, interrupts, consumables, utility, queries: jobs.length + 1, failed };
   // Only a COMPLETE scan is cached. Caching a degraded one would pin the
   // missing numbers for the whole session: the early return above would hand
   // the same short totals back to every retry without issuing a query, and a

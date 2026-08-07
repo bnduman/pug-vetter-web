@@ -7,9 +7,11 @@ import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/offi
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
   abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
-  consumablesFromCasts, deathsByPlayer, debuffUptimes, interruptsFromTable,
+  castCountsByCatalogue, deathsByPlayer, debuffUptimes, interruptsFromTable,
   mergeBands,
 } from "../js/officer-stats.js";
+import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "../js/consumable-casts.js";
+import { UTILITY_CASTS, UTILITY_CAST_IDS } from "../js/utility-casts.js";
 
 // --- per-fight consumables from combatantinfo seeds ---------------------------
 
@@ -489,8 +491,8 @@ test("avoidableSpellIds: only ids that could ever be blamed on someone", async (
   }
 });
 
-test("consumablesFromCasts: groups by kind and ignores uncatalogued casts", () => {
-  const r = consumablesFromCasts([
+test("castCountsByCatalogue: groups by kind and ignores uncatalogued casts", () => {
+  const r = castCountsByCatalogue([
     { id: 1, abilities: [
       { guid: 28499, name: "Restore Mana", total: 21 },   // mana potion
       { guid: 27237, name: "Master Healthstone", total: 3 }, // healing
@@ -506,6 +508,62 @@ test("consumablesFromCasts: groups by kind and ignores uncatalogued casts", () =
   assert.equal(a.items.get("Super Mana Potion"), 21);
   assert.ok(!a.items.has("Create Healthstone"));
   assert.equal(r.get(2).byGroup.drums, 25);
+});
+
+// --- raid utility: nets / innervates / engineering bombs ----------------------
+
+test("castCountsByCatalogue: counts raid utility and ignores consumable ids", () => {
+  const r = castCountsByCatalogue([
+    { id: 1, abilities: [
+      { guid: 31367, name: "Netherweave Net", total: 4 },
+      { guid: 31460, name: "Netherweave Net", total: 9 },   // TAILORING the nets
+      { guid: 28499, name: "Restore Mana", total: 12 },     // a consumable: not ours
+    ] },
+    { id: 2, abilities: [
+      { guid: 29166, name: "Innervate", total: 6 },
+      { guid: 30216, name: "Fel Iron Bomb", total: 3 },
+      { guid: 30486, name: "Super Sapper Charge", total: 2 },
+    ] },
+  ], UTILITY_CASTS);
+
+  // 31460 is the recipe that CREATES nets, not a net thrown at anything. If it
+  // ever gets added to the catalogue, a tailor's crafting session reads as
+  // elite add control.
+  const a = r.get(1);
+  assert.equal(a.total, 4, "only the net that was USED counts");
+  assert.equal(a.byGroup.nets, 4);
+  assert.ok(!a.items.has("Restore Mana"));
+
+  const b = r.get(2);
+  assert.equal(b.byGroup.innervate, 6);
+  assert.equal(b.byGroup.bombs, 5, "bombs from different items add up");
+  assert.equal(b.items.get("Fel Iron Bomb"), 3);
+  assert.equal(b.total, 11);
+});
+
+test("the two cast catalogues are disjoint", () => {
+  // Load-bearing: fetchDeepStats counts every filtered Casts table into BOTH
+  // catalogues, so an id in both would be counted twice — once under "Used" and
+  // once under "Utility". This is exactly how Super Sapper Charge started out.
+  const shared = CONSUMABLE_CAST_IDS.filter((id) => UTILITY_CAST_IDS.includes(id));
+  assert.deepEqual(shared, [],
+    `ids in both catalogues would be double-counted: ${shared.join(", ")}`);
+});
+
+test("every utility cast id has a label and a known group", () => {
+  const groups = new Set(["nets", "innervate", "bombs"]);
+  for (const [id, v] of Object.entries(UTILITY_CASTS)) {
+    assert.ok(v.label, `id ${id} has no label`);
+    assert.ok(groups.has(v.group), `id ${id} has unknown group "${v.group}"`);
+  }
+});
+
+test("the combined cast id pool batches under the top-5 table cap", () => {
+  // The Casts table returns only each player's top 5 abilities, so a batch of
+  // 5+ ids could silently truncate. Consumables and utility share one pool.
+  for (const batch of batchIds([...CONSUMABLE_CAST_IDS, ...UTILITY_CAST_IDS])) {
+    assert.ok(batch.length <= 4, `batch of ${batch.length} ids risks truncation`);
+  }
 });
 
 test("avoidableFromDamageTaken: the denominator is `total`, NOT the sum of the rows", () => {

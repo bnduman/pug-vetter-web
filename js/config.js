@@ -65,10 +65,14 @@ export const CONFIG = {
   //
   //   guild attendance, 4 pages   75 pts   ~48/hour site-wide   AUTOMATIC
   //   autopsy: open one pull      31 pts  ~116/hour             10k events
-  //   deep scan "Analyse night"   20 pts  ~180/hour             opt-in, 21 queries
+  //   deep scan "Analyse night"   24 pts  ~150/hour             opt-in, 23 queries
   //   vet a character             17 pts  ~210/hour
   //   officer report card          5 pts  ~718/hour
   //   autopsy: open a report       1 pt  ~3529/hour
+  //
+  // The deep scan went 20 -> 24 pts on 2026-08-07 (re-measured, not estimated)
+  // when the nets/innervates/bombs tracker added ids to the filtered Casts
+  // pool. It stays the second-cheapest thing per use and is still opt-in.
   //
   // The ranking is worth internalising: attendance costs 15x a report card and
   // is the ONE thing that runs without being asked for (on opening the officer

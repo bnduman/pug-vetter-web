@@ -54,9 +54,14 @@ export const CONSUMABLE_CASTS = {
   28494: { label: "Insane Strength Potion", group: "utility" },
   45051: { label: "Mad Alchemist's Potion", group: "utility" },
   42137: { label: "Greater Rune of Warding", group: "utility" },
-  30486: { label: "Super Sapper Charge", group: "utility" },
   9512: { label: "Thistle Tea", group: "mana" },
 };
+// NOTE: Super Sapper Charge (30486) used to live here. It moved to
+// js/utility-casts.js when the nets/innervates/bombs tracker landed — it's an
+// engineering explosive, so it belongs with the other bombs. An id must appear
+// in exactly ONE of the two catalogues: the deep scan counts every filtered
+// Casts table into both, so a shared id would be counted twice, once in "Used"
+// and once in "Utility". A test pins that they stay disjoint.
 
 /** Every id we know how to count, for the filterExpression batches. */
 export const CONSUMABLE_CAST_IDS = Object.keys(CONSUMABLE_CASTS).map(Number);

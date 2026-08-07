@@ -163,6 +163,27 @@ function usedCell(p) {
   return `<td class="mono" title="${esc(title)}">${c.total}<span class="off-cons">${esc(brief)}</span></td>`;
 }
 
+// Raid utility over the night: nets thrown, innervates cast, engineering bombs
+// used. Kept apart from "Used" because these answer "did people do their job for
+// the raid", not "did they keep themselves alive" — and because an innervate is
+// cast, not consumed, so it has no business inflating a consumable count.
+function utilityCell(p) {
+  if (!deep) return "";
+  const u = deep.utility?.get(p.id);
+  if (!u || !u.total) return '<td class="mono dim">–</td>';
+  const g = u.byGroup;
+  // Same rule as usedCell: every group the total counts has to appear here, or
+  // the number and the breakdown under it disagree.
+  const brief = [
+    g.nets ? `${g.nets} nets` : "",
+    g.innervate ? `${g.innervate} innerv` : "",
+    g.bombs ? `${g.bombs} bombs` : "",
+  ].filter(Boolean).join(", ");
+  const title = [...u.items.entries()].sort((a, b) => b[1] - a[1])
+    .map(([n, v]) => `${n} ×${v}`).join("\n");
+  return `<td class="mono ok" title="${esc(title)}">${u.total}<span class="off-cons">${esc(brief)}</span></td>`;
+}
+
 // --- screens ---------------------------------------------------------------
 
 // The visible spinner carries no live-region role of its own: this markup is
@@ -221,7 +242,7 @@ function renderView(error) {
     </div>`;
 }
 
-// The deep scan costs a fixed ~20 whole-report queries against a rate limit
+// The deep scan costs a fixed ~23 whole-report queries against a rate limit
 // shared by every visitor, so it's never automatic — the officer asks for it,
 // and the button says up front what it will cost.
 function deepButton(c) {
@@ -232,14 +253,14 @@ function deepButton(c) {
   if (deep && deep.failed) {
     // A degraded scan isn't cached, so re-running really does re-query.
     return `<button id="off-deep" class="secondary" type="button"
-      title="${deep.failed} of ${deep.queries} query batches failed — some avoidable damage, interrupts or consumables are missing from these totals">
+      title="${deep.failed} of ${deep.queries} query batches failed — some avoidable damage, interrupts, consumables or utility casts are missing from these totals">
       Re-analyse (${deep.failed}/${deep.queries} batches failed)</button>`;
   }
   if (deep) {
     return `<span class="off-deep-done">✓ Whole night analysed (${deep.queries} queries, trash included)</span>`;
   }
   return `<button id="off-deep" class="secondary" type="button"
-    title="Avoidable damage, interrupts and consumables for the whole night — trash included, not just the ${pulls} boss pulls (~20 queries on the shared Warcraft Logs key)">
+    title="Avoidable damage, interrupts, consumables and raid utility (nets / innervates / bombs) for the whole night — trash included, not just the ${pulls} boss pulls (~23 queries on the shared Warcraft Logs key)">
     Analyse night</button>`;
 }
 
@@ -315,6 +336,7 @@ function cardHtml(c) {
       ${avoidCell(p)}
       ${interruptCell(p)}
       ${usedCell(p)}
+      ${utilityCell(p)}
     </tr>`;
   }).join("");
 
@@ -340,7 +362,8 @@ function cardHtml(c) {
         <th title="Deaths across the whole night, trash included">Deaths</th>
         ${deep ? `<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg${partialMark}</th>`
           + `<th title="Enemy casts interrupted">Interrupts${partialMark}</th>`
-          + `<th title="Potions, healthstones and drums actually consumed">Used${partialMark}</th>` : ""}</tr></thead>
+          + `<th title="Potions, healthstones and drums actually consumed">Used${partialMark}</th>`
+          + `<th title="Netherweave nets thrown, innervates cast and engineering bombs used">Utility${partialMark}</th>` : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
@@ -349,12 +372,15 @@ function cardHtml(c) {
       <span class="warn">amber</span> = a single elixir or an inconsistent night; red = nothing.</p>
     <p class="csi-hint"><b>Deaths</b> cover the whole night, trash included.
       ${deep
-        ? `<b>Avoidable dmg</b>, <b>Interrupts</b> and <b>Used</b> also cover the whole night, trash included.
+        ? `<b>Avoidable dmg</b>, <b>Interrupts</b>, <b>Used</b> and <b>Utility</b> also cover the whole
+           night, trash included.
            Avoidable is judged per role: a frontal (Cleave, Mortal Cleave) is expected on the active
            tank and only counts against everyone else — it's damage from tracked boss mechanics, so an
            ability the catalogue doesn't know isn't counted (regenerate with <code>npm run gen:rule-ids</code>).
-           <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.`
-        : "Avoidable damage, interrupts and consumables used need the deep scan above."}</p>
+           <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.
+           <b>Utility</b> counts Netherweave nets thrown, innervates cast and engineering bombs used —
+           a dash means they cast none, not that the data is missing.`
+        : "Avoidable damage, interrupts, consumables used and raid utility need the deep scan above."}</p>
     ${deep?.failed ? `<p class="csi-hint warn">⚠ ${deep.failed} of ${deep.queries} query batches failed,
       so the ⚠ columns are <b>lower bounds</b> — a small number there may just be missing data.
       Re-analyse above to fill them in.</p>` : ""}
