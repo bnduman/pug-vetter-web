@@ -53,6 +53,7 @@ export const UTILITY_CASTS = {
 /** Every id we know how to count, for the filterExpression batches. */
 export const UTILITY_CAST_IDS = Object.keys(UTILITY_CASTS).map(Number);
 
-export const UTILITY_GROUP_LABELS = {
-  nets: "Nets", innervate: "Innervate", bombs: "Bombs",
-};
+// No GROUP_LABELS export to mirror consumable-casts.js: the officer card writes
+// its own short forms ("nets" / "innerv" / "bombs") to fit the cell, so a
+// second set of names here would only be a thing to keep in sync. (The
+// equivalent CONSUMABLE_GROUP_LABELS is unused too — it's on the §9 list.)
