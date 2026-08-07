@@ -1,8 +1,14 @@
 "use strict";
 // Raid-utility CAST ids -> a display label and a group, for the officer night
-// stats. Three questions a raid leader asks that the consumable columns can't
+// stats. Questions a raid leader asks that the consumable columns can't
 // answer: did anyone net the adds, did the druids innervate, did the engineers
-// throw their bombs.
+// throw their bombs, did anyone drop threat when they pulled aggro.
+//
+// DISPELS ARE NOT HERE, on purpose. WCL has a dedicated Dispels table (same
+// spell-keyed shape as Interrupts), so dispels are counted as things that
+// actually LANDED, from one unfiltered query, rather than as casts that may
+// have dispelled nothing. See fetchDeepStats in officer-stats.js. They still
+// render in the same Utility column.
 //
 // Deliberately NOT part of consumable-casts.js. That file is about what a
 // raider CONSUMED (potions drunk, stones eaten, drums beaten) and its total
@@ -48,7 +54,38 @@ export const UTILITY_CASTS = {
   23063: { label: "Dense Dynamite", group: "bombs" },
   39965: { label: "Frost Grenade", group: "bombs" },       // Engineering, item 32413
   19821: { label: "Arcane Bomb", group: "bombs" },         // Wowhead: item 16040
+
+  // ---- threat drops ----
+  // The ids are the CASTS. masterData shows most of these under a second id for
+  // the resulting aura — Invisibility 66 casts, 32612 is the invisibility that
+  // lands 3s later; Misdirection 34477 casts, 35079 is the threat-transfer buff;
+  // Soulshatter 29858 casts, 32835 is its effect; Vanish 26889 casts, 26888 and
+  // 29448 are effects. Counting an effect id would count the aura, not the
+  // decision to use the ability.
+  34477: { label: "Misdirection", group: "threat" },
+  29858: { label: "Soulshatter", group: "threat" },
+  26889: { label: "Vanish", group: "threat" },
+  66: { label: "Invisibility", group: "threat" },
+  27004: { label: "Cower", group: "threat" },   // druid cat form, max rank
+  // Fade is the one that really has ranks in live logs: 234 casts on 25429 but
+  // 15 on 10942 and 3 on 10941 across 36 reports. Dropping the low ranks would
+  // quietly undercount the priests who kept an old rank on a macro.
+  25429: { label: "Fade", group: "threat" },
+  10942: { label: "Fade", group: "threat" },
+  10941: { label: "Fade", group: "threat" },
 };
+
+// NOT COUNTABLE: hunter Feign Death. Verified 2026-08-07 — 5384 returns nothing
+// from a direct filterExpression Casts query across 6 guild reports that each
+// had 2-3 hunters in them, and /feign/ matches nothing in any of those reports'
+// masterData, nor in 30 public reports. The Anniversary combat log simply does
+// not surface it, so a hunter's Utility count cannot include their feigns. This
+// is a data limitation, not a missing id — don't "fix" it by guessing one.
+//
+// Misdirection is counted here even though it REDIRECTS threat rather than
+// dropping it: it's the hunter's threat tool and a raid leader checking "is
+// anyone managing threat" wants it. The per-item tooltip names it, so a cell of
+// 12 is never ambiguous about which it was.
 
 /** Every id we know how to count, for the filterExpression batches. */
 export const UTILITY_CAST_IDS = Object.keys(UTILITY_CASTS).map(Number);

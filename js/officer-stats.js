@@ -9,9 +9,9 @@
 //   whole-report vs 132 summed per-encounter; the extra 24 are the trash
 //   deaths, so nothing is lost).
 //
-//   DEEP (~23 queries, opt-in): avoidable damage taken, interrupts, consumables
-//   used, and raid utility (nets / innervates / engineering bombs) — all across
-//   the WHOLE night, trash included.
+//   DEEP (~26 queries, opt-in): avoidable damage taken, interrupts, consumables
+//   used, and raid utility (dispels / innervates / threat drops / nets / bombs)
+//   — all across the WHOLE night, trash included.
 //
 // THE TRUNCATION TRAP that shapes this file: a WCL table returns only each
 // player's TOP 5 abilities. It is not a time-window limit and there is no
@@ -263,11 +263,18 @@ export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {
   return out;
 }
 
-/** Interrupts from one fight's Interrupts table. The table is keyed by the
- *  INTERRUPTED spell, with a `details` list of who interrupted it, so this
- *  inverts it to per-interrupter.
+/** Invert a SPELL-KEYED credit table into per-player credit.
+ *
+ *  Both Interrupts and Dispels come back in this shape: keyed by the spell that
+ *  was interrupted / dispelled, each with a `details` list of the players who
+ *  did it. Neither is keyed by a per-player ability list, so the top-5 cap that
+ *  shapes the rest of this file does not apply and one unfiltered whole-report
+ *  query is both complete and the cheapest option.
+ *
+ *  `actors[0]` reads correctly for both: the mob whose cast was interrupted, or
+ *  the unit the aura was removed from.
  *  -> Map playerId -> { count, spells: Map "Spell (Source)" -> count } */
-export function interruptsFromTable(table) {
+export function invertSpellKeyedTable(table) {
   const out = new Map();
   // shape: entries: [ { entries: [ { name, details: [...] } ] } ]
   const groups = (table?.entries ?? []).flatMap((g) => g?.entries ?? []);
@@ -323,8 +330,9 @@ export function castCountsByCatalogue(entries, catalogue = CONSUMABLE_CASTS) {
 
 /** Fold one castCountsByCatalogue() result into a running total. Seeds byGroup
  *  from what arrives rather than from a fixed list, so it works for any
- *  catalogue. */
-function mergeCastCounts(into, add) {
+ *  catalogue — and so dispels, which arrive from a different query entirely,
+ *  fold into the same per-player rows. Exported for that test. */
+export function mergeCastCounts(into, add) {
   for (const [id, v] of add) {
     const e = into.get(id) ?? { total: 0, byGroup: {}, items: new Map() };
     e.total += v.total;
@@ -363,6 +371,20 @@ function mergeInterrupts(into, add) {
   return into;
 }
 
+/** Re-shape an inverted spell-keyed table into the same {total,byGroup,items}
+ *  shape the cast catalogues produce, so dispels can be folded into the utility
+ *  totals alongside nets/innervates/bombs/threat despite coming from a
+ *  completely different query. The items map keeps what was REMOVED, which is
+ *  the useful detail for a dispel (a mage's Spellsteal on Fire Destruction
+ *  reads very differently from a paladin cleansing a poison). */
+export function dispelsAsUtility(inverted) {
+  const out = new Map();
+  for (const [id, v] of inverted) {
+    out.set(id, { total: v.count, byGroup: { dispels: v.count }, items: new Map(v.spells) });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Fetchers
 
@@ -389,7 +411,7 @@ const deepCache = new Map(); // code -> deep stats (session-only; it's expensive
 
 /**
  * Per-player avoidable damage, interrupts, consumables and raid utility for the
- * WHOLE night, trash included. Opt-in: ~23 filtered queries against a shared
+ * WHOLE night, trash included. Opt-in: ~26 filtered queries against a shared
  * rate limit.
  * -> { avoidable, interrupts, consumables, utility: Map id->{...}, queries, failed }
  */
@@ -422,7 +444,15 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
 
   const jobs = [
     { query: PLAIN_TABLE_QUERY("Interrupts"),
-      apply: (t) => mergeInterrupts(interrupts, interruptsFromTable(t)) },
+      apply: (t) => mergeInterrupts(interrupts, invertSpellKeyedTable(t)) },
+    // Dispels ride the same spell-keyed shape as Interrupts, so one unfiltered
+    // query covers the night. Counting the TABLE rather than dispel casts means
+    // these are dispels that actually landed — a Cleanse that removed nothing
+    // isn't credited. It counts offensive purges (Spellsteal, Purge, a warrior's
+    // Shield Slam) alongside friendly cleanses; the tooltip names what was
+    // removed, so the two stay tellable apart.
+    { query: PLAIN_TABLE_QUERY("Dispels"),
+      apply: (t) => mergeCastCounts(utility, dispelsAsUtility(invertSpellKeyedTable(t))) },
     // One UNFILTERED DamageTaken table, doing two jobs the filtered batches
     // can't. (a) Its per-player `total` is all damage taken — the honest
     // denominator for the avoidable %. (b) Its top-5 rows still resolve by

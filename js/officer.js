@@ -163,10 +163,22 @@ function usedCell(p) {
   return `<td class="mono" title="${esc(title)}">${c.total}<span class="off-cons">${esc(brief)}</span></td>`;
 }
 
-// Raid utility over the night: nets thrown, innervates cast, engineering bombs
-// used. Kept apart from "Used" because these answer "did people do their job for
-// the raid", not "did they keep themselves alive" — and because an innervate is
-// cast, not consumed, so it has no business inflating a consumable count.
+// Raid utility over the night: dispels landed, innervates cast, threat dropped,
+// nets thrown, engineering bombs used. Kept apart from "Used" because these
+// answer "did people do their job for the raid", not "did they keep themselves
+// alive" — and because an innervate is cast, not consumed, so it has no
+// business inflating a consumable count.
+//
+// Ordered most-common first, so the busy end of the breakdown is what the eye
+// hits: a healer's dispels and innervates before a rogue's one Vanish.
+const UTILITY_GROUPS = [
+  ["dispels", "disp"],
+  ["innervate", "innerv"],
+  ["threat", "threat"],
+  ["nets", "nets"],
+  ["bombs", "bombs"],
+];
+
 function utilityCell(p) {
   if (!deep) return "";
   const u = deep.utility?.get(p.id);
@@ -174,14 +186,10 @@ function utilityCell(p) {
   const g = u.byGroup;
   // Same rule as usedCell: every group the total counts has to appear here, or
   // the number and the breakdown under it disagree. Unlike consumables though,
-  // most players only ever use ONE of these three, and "12 / 12 bombs" prints
-  // the same number twice — so a single-group cell drops the repeated count and
-  // just names the group.
-  const parts = [
-    g.nets ? ["nets", g.nets] : null,
-    g.innervate ? ["innerv", g.innervate] : null,
-    g.bombs ? ["bombs", g.bombs] : null,
-  ].filter(Boolean);
+  // plenty of players only ever use ONE of these, and "12 / 12 bombs" prints the
+  // same number twice — so a single-group cell drops the repeated count and just
+  // names the group.
+  const parts = UTILITY_GROUPS.filter(([key]) => g[key]).map(([key, label]) => [label, g[key]]);
   const brief = parts.length === 1
     ? parts[0][0]
     : parts.map(([label, n]) => `${n} ${label}`).join(", ");
@@ -248,7 +256,7 @@ function renderView(error) {
     </div>`;
 }
 
-// The deep scan costs a fixed ~23 whole-report queries against a rate limit
+// The deep scan costs a fixed ~26 whole-report queries against a rate limit
 // shared by every visitor, so it's never automatic — the officer asks for it,
 // and the button says up front what it will cost.
 function deepButton(c) {
@@ -266,7 +274,7 @@ function deepButton(c) {
     return `<span class="off-deep-done">✓ Whole night analysed (${deep.queries} queries, trash included)</span>`;
   }
   return `<button id="off-deep" class="secondary" type="button"
-    title="Avoidable damage, interrupts, consumables and raid utility (nets / innervates / bombs) for the whole night — trash included, not just the ${pulls} boss pulls (~23 queries on the shared Warcraft Logs key)">
+    title="Avoidable damage, interrupts, consumables and raid utility (dispels / innervates / threat drops / nets / bombs) for the whole night — trash included, not just the ${pulls} boss pulls (~26 queries on the shared Warcraft Logs key)">
     Analyse night</button>`;
 }
 
@@ -369,7 +377,7 @@ function cardHtml(c) {
         ${deep ? `<th title="Damage taken from mechanics that were avoidable for this role">Avoidable dmg${partialMark}</th>`
           + `<th title="Enemy casts interrupted">Interrupts${partialMark}</th>`
           + `<th title="Potions, healthstones and drums actually consumed">Used${partialMark}</th>`
-          + `<th title="Netherweave nets thrown, innervates cast and engineering bombs used">Utility${partialMark}</th>` : ""}</tr></thead>
+          + `<th title="Dispels landed, innervates cast, threat dropped, Netherweave nets thrown and engineering bombs used">Utility${partialMark}</th>` : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <p class="csi-hint">Consumables = pulls entered with any flask or elixir, out of the boss pulls
@@ -384,8 +392,12 @@ function cardHtml(c) {
            tank and only counts against everyone else — it's damage from tracked boss mechanics, so an
            ability the catalogue doesn't know isn't counted (regenerate with <code>npm run gen:rule-ids</code>).
            <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.
-           <b>Utility</b> counts Netherweave nets thrown, innervates cast and engineering bombs used —
-           a dash means they cast none, not that the data is missing.`
+           <b>Utility</b> counts dispels landed, innervates cast, threat dropped (Fade, Vanish,
+           Soulshatter, Invisibility, Cower, Misdirection), Netherweave nets thrown and engineering
+           bombs used — a dash means they did none of it, not that the data is missing.
+           Dispels are ones that actually removed something, offensive purges included.
+           <b>Hunter Feign Death is not in the Anniversary combat log at all</b>, so it can never
+           appear here.`
         : "Avoidable damage, interrupts, consumables used and raid utility need the deep scan above."}</p>
     ${deep?.failed ? `<p class="csi-hint warn">⚠ ${deep.failed} of ${deep.queries} query batches failed,
       so the ⚠ columns are <b>lower bounds</b> — a small number there may just be missing data.

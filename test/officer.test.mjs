@@ -7,8 +7,8 @@ import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/offi
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
   abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
-  castCountsByCatalogue, deathsByPlayer, debuffUptimes, interruptsFromTable,
-  mergeBands,
+  castCountsByCatalogue, deathsByPlayer, debuffUptimes, dispelsAsUtility,
+  invertSpellKeyedTable, mergeBands, mergeCastCounts,
 } from "../js/officer-stats.js";
 import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "../js/consumable-casts.js";
 import { UTILITY_CASTS, UTILITY_CAST_IDS } from "../js/utility-casts.js";
@@ -363,8 +363,8 @@ test("avoidableFromDamageTaken: a player's own ability isn't blamed as a boss me
   assert.equal(avoidableFromDamageTaken(entries, roles).get(1).avoidable, 49300);
 });
 
-test("interruptsFromTable: inverts spell-keyed rows into per-interrupter counts", () => {
-  const r = interruptsFromTable({ entries: [{ entries: [
+test("invertSpellKeyedTable: inverts spell-keyed rows into per-player counts", () => {
+  const r = invertSpellKeyedTable({ entries: [{ entries: [
     { name: "Frostbolt", details: [
       { id: 20, total: 2, actors: [{ name: "Staff of Disintegration" }] },
       { id: 21, total: 1, actors: [{ name: "Staff of Disintegration" }] },
@@ -377,7 +377,7 @@ test("interruptsFromTable: inverts spell-keyed rows into per-interrupter counts"
   assert.equal(r.get(20).spells.get("Greater Heal (Coilfang Priestess)"), 3);
   assert.equal(r.get(21).count, 1);
   assert.equal(r.get(22).spells.get("Nameless"), 1); // falls back to bare name
-  assert.equal(interruptsFromTable(null).size, 0);
+  assert.equal(invertSpellKeyedTable(null).size, 0);
 });
 
 test("fetchDeepStats: a degraded scan is NOT cached, so a retry re-queries", async () => {
@@ -551,11 +551,63 @@ test("the two cast catalogues are disjoint", () => {
 });
 
 test("every utility cast id has a label and a known group", () => {
-  const groups = new Set(["nets", "innervate", "bombs"]);
+  // "dispels" is deliberately NOT here: it comes from the Dispels TABLE, not
+  // from a cast id, so a catalogue entry claiming that group would be counted
+  // twice — once as a cast and once from the table.
+  const groups = new Set(["nets", "innervate", "bombs", "threat"]);
   for (const [id, v] of Object.entries(UTILITY_CASTS)) {
     assert.ok(v.label, `id ${id} has no label`);
     assert.ok(groups.has(v.group), `id ${id} has unknown group "${v.group}"`);
   }
+});
+
+test("threat drops count the CAST id, never the resulting aura", () => {
+  // masterData lists most of these twice: the cast, and the buff it applies.
+  // Counting the aura id would count the effect landing rather than the player
+  // deciding to use it — and for Misdirection the aura fires on every redirected
+  // hit, which would inflate one cast into dozens.
+  const auraIds = [32612, 35079, 32835, 26888, 29448];
+  for (const id of auraIds) {
+    assert.ok(!(id in UTILITY_CASTS), `${id} is an effect/aura id, not a cast`);
+  }
+  for (const id of [66, 34477, 29858, 26889]) {
+    assert.equal(UTILITY_CASTS[id].group, "threat");
+  }
+});
+
+test("dispelsAsUtility: table credit becomes the utility shape", () => {
+  const inverted = invertSpellKeyedTable({ entries: [{ entries: [
+    { name: "Fire Destruction", details: [
+      { id: 14, total: 4, actors: [{ name: "Greyheart Nether-Mage" }] },
+      { id: 36, total: 1, actors: [{ name: "Greyheart Nether-Mage" }] },
+    ] },
+    { name: "Poisoned Thrust", details: [{ id: 14, total: 2, actors: [{ name: "Hydross" }] }] },
+  ] }] });
+  const u = dispelsAsUtility(inverted);
+  const a = u.get(14);
+  assert.equal(a.total, 6);
+  assert.equal(a.byGroup.dispels, 6);
+  // What was REMOVED is the useful detail, so it survives into the tooltip.
+  assert.equal(a.items.get("Fire Destruction (Greyheart Nether-Mage)"), 4);
+  assert.equal(a.items.get("Poisoned Thrust (Hydross)"), 2);
+  assert.equal(u.get(36).total, 1);
+});
+
+test("dispels merge into the same utility totals as casts, without collision", () => {
+  // The Utility column sums two completely different queries. A player who both
+  // dispelled and dropped threat must end up with one row carrying both.
+  const utility = new Map();
+  mergeCastCounts(utility, castCountsByCatalogue(
+    [{ id: 7, abilities: [{ guid: 25429, name: "Fade", total: 3 }] }], UTILITY_CASTS));
+  mergeCastCounts(utility, dispelsAsUtility(invertSpellKeyedTable({ entries: [{ entries: [
+    { name: "Chains of Ice", details: [{ id: 7, total: 5, actors: [{ name: "Vashj" }] }] },
+  ] }] })));
+  const e = utility.get(7);
+  assert.equal(e.total, 8);
+  assert.equal(e.byGroup.threat, 3);
+  assert.equal(e.byGroup.dispels, 5);
+  assert.equal(e.items.get("Fade"), 3);
+  assert.equal(e.items.get("Chains of Ice (Vashj)"), 5);
 });
 
 test("the combined cast id pool batches under the top-5 table cap", () => {
