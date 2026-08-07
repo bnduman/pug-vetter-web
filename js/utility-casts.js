@@ -66,7 +66,6 @@ export const UTILITY_CASTS = {
   29858: { label: "Soulshatter", group: "threat" },
   26889: { label: "Vanish", group: "threat" },
   66: { label: "Invisibility", group: "threat" },
-  27004: { label: "Cower", group: "threat" },   // druid cat form, max rank
   // Fade is the one that really has ranks in live logs: 234 casts on 25429 but
   // 15 on 10942 and 3 on 10941 across 36 reports. Dropping the low ranks would
   // quietly undercount the priests who kept an old rank on a macro.
@@ -75,6 +74,12 @@ export const UTILITY_CASTS = {
   10941: { label: "Fade", group: "threat" },
 };
 
+// NOT COUNTED, by decision (2026-08-07): druid Cower (27004). It's a real
+// threat drop, but a cat spamming it on cooldown posted 44 in one night next to
+// a warlock's 7 deliberate Soulshatters, drowning the group in rotation noise.
+// The other threat drops are decisions; Cower is a button. Same reasoning
+// removed Shield Slam's automatic purge from the dispel count (officer-stats).
+//
 // NOT COUNTABLE: hunter Feign Death. Verified 2026-08-07 — 5384 returns nothing
 // from a direct filterExpression Casts query across 6 guild reports that each
 // had 2-3 hunters in them, and /feign/ matches nothing in any of those reports'

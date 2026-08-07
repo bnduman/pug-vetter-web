@@ -7,8 +7,8 @@ import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/offi
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
   abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
-  castCountsByCatalogue, deathsByPlayer, debuffUptimes, dispelsAsUtility,
-  invertSpellKeyedTable, mergeBands, mergeCastCounts,
+  castCountsByCatalogue, deathsByPlayer, debuffUptimes, dispelCountOf,
+  dispelsAsUtility, invertSpellKeyedTable, mergeBands, mergeCastCounts,
 } from "../js/officer-stats.js";
 import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "../js/consumable-casts.js";
 import { UTILITY_CASTS, UTILITY_CAST_IDS } from "../js/utility-casts.js";
@@ -573,6 +573,9 @@ test("threat drops count the CAST id, never the resulting aura", () => {
   for (const id of [66, 34477, 29858, 26889]) {
     assert.equal(UTILITY_CASTS[id].group, "threat");
   }
+  // Druid Cower is excluded BY DECISION (2026-08-07), not by oversight: spammed
+  // on cooldown it posted 44 in a night and drowned the deliberate drops.
+  assert.ok(!(27004 in UTILITY_CASTS), "Cower was deliberately removed — see utility-casts.js");
 });
 
 test("dispelsAsUtility: table credit becomes the utility shape", () => {
@@ -598,6 +601,32 @@ test("dispelsAsUtility: table credit becomes the utility shape", () => {
   assert.equal(a.items.get("Flame Shock off Bluebrixx"), 2);
   assert.equal(a.items.get("Nameless"), 1);
   assert.equal(u.get(36).total, 1);
+});
+
+test("dispelCountOf: Shield Slam's automatic purge is subtracted", () => {
+  // A detail row's `abilities` names what the dispeller cast, with per-ability
+  // totals summing to the row's total (verified live 2026-08-07).
+  // Mixed row: 3 real dispels + 2 Shield Slams -> only the 3 count.
+  assert.equal(dispelCountOf({ total: 5, abilities: [
+    { name: "Cleanse", total: 3 }, { name: "Shield Slam", total: 2 },
+  ] }), 3);
+  // Shield-Slam-only row -> 0, and the inversion must then SKIP the row so the
+  // tank reads as a dash, not as a proud 0-dispel entry.
+  assert.equal(dispelCountOf({ total: 2, abilities: [{ name: "Shield Slam", total: 2 }] }), 0);
+  // No abilities data at all degrades to counting everything — better to
+  // overcount a rare malformed row than to hide real dispels.
+  assert.equal(dispelCountOf({ total: 4 }), 4);
+
+  const u = dispelsAsUtility(invertSpellKeyedTable({ entries: [{ entries: [
+    { name: "Heroism", details: [
+      { id: 9, total: 2, actors: [{ name: "Serpentguard" }],
+        abilities: [{ name: "Shield Slam", total: 2 }] },          // tank: all automatic
+      { id: 11, total: 3, actors: [{ name: "Serpentguard" }],
+        abilities: [{ name: "Purge", total: 3 }] },                // shaman: deliberate
+    ] },
+  ] }] }, (spell, target) => `${spell} off ${target}`, dispelCountOf));
+  assert.ok(!u.has(9), "a Shield-Slam-only dispeller gets no entry at all");
+  assert.equal(u.get(11).total, 3);
 });
 
 test("invertSpellKeyedTable: default label keeps the interrupt reading", () => {

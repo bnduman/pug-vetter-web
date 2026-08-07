@@ -277,8 +277,15 @@ export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {
  *    Dispels    — the unit the aura came OFF:      "Flame Shock off Bluebrixx"
  *  Printing the dispel one in the interrupt's format would read as "cast by",
  *  i.e. exactly backwards for a friendly cleanse.
+ *
+ *  `countOf` decides how much of a detail row to credit. The default is the
+ *  row's total; the dispel caller subtracts excluded dispelling abilities
+ *  (Shield Slam) from it. A row whose count comes to 0 is skipped entirely, so
+ *  a player with only excluded credit gets no entry at all — a dash in the
+ *  cell, not a 0.
  *  -> Map playerId -> { count, spells: Map label -> count } */
-export function invertSpellKeyedTable(table, label = (spell, src) => `${spell} (${src})`) {
+export function invertSpellKeyedTable(table, label = (spell, src) => `${spell} (${src})`,
+                                      countOf = (d) => d.total ?? 1) {
   const out = new Map();
   // shape: entries: [ { entries: [ { name, details: [...] } ] } ]
   const groups = (table?.entries ?? []).flatMap((g) => g?.entries ?? []);
@@ -286,8 +293,9 @@ export function invertSpellKeyedTable(table, label = (spell, src) => `${spell} (
     const spellName = spell?.name ?? "?";
     for (const d of spell.details ?? []) {
       if (d?.id == null) continue;
+      const n = countOf(d);
+      if (!(n > 0)) continue;
       const e = out.get(d.id) ?? { count: 0, spells: new Map() };
-      const n = d.total ?? 1;
       e.count += n;
       const src = (d.actors ?? [])[0]?.name;
       // No actor recorded -> the bare spell name, in either table.
@@ -297,6 +305,26 @@ export function invertSpellKeyedTable(table, label = (spell, src) => `${spell} (
     }
   }
   return out;
+}
+
+// Dispelling abilities whose credit is NOT counted (decision, 2026-08-07): a
+// warrior's Shield Slam purges an enemy buff automatically as part of the tank
+// rotation — real value, but not a decision, and it drowned the column in
+// rotation noise (10 "dispels" on a tank who never pressed a dispel button).
+// The same reasoning dropped druid Cower from the threat group (utility-casts).
+// NAME-matched, against this project's id-first rule, because the Dispels
+// table's `details[].abilities` rows carry no id — verified live, there is
+// nothing else to match on.
+const EXCLUDED_DISPEL_ABILITIES = new Set(["Shield Slam"]);
+
+/** A dispel detail's countable credit: its total minus what excluded abilities
+ *  (Shield Slam) contributed. `abilities` names what the dispeller cast, with
+ *  per-ability totals that sum to the row's total (verified live). */
+export function dispelCountOf(d) {
+  const excluded = (d.abilities ?? [])
+    .filter((a) => EXCLUDED_DISPEL_ABILITIES.has(a?.name))
+    .reduce((s, a) => s + (a.total ?? 0), 0);
+  return Math.max(0, (d.total ?? 1) - excluded);
 }
 
 /** Every group a catalogue can produce, seeded at 0, so a player who cast one
@@ -454,12 +482,12 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
     // Dispels ride the same spell-keyed shape as Interrupts, so one unfiltered
     // query covers the night. Counting the TABLE rather than dispel casts means
     // these are dispels that actually landed — a Cleanse that removed nothing
-    // isn't credited. It counts offensive purges (Spellsteal, Purge, a warrior's
-    // Shield Slam) alongside friendly cleanses; the tooltip names what was
-    // removed, so the two stay tellable apart.
+    // isn't credited. Offensive purges (Spellsteal, Purge) count alongside
+    // friendly cleanses — the tooltip names what was removed — but Shield
+    // Slam's automatic purge is subtracted (see dispelCountOf).
     { query: PLAIN_TABLE_QUERY("Dispels"),
       apply: (t) => mergeCastCounts(utility, dispelsAsUtility(
-        invertSpellKeyedTable(t, (spell, target) => `${spell} off ${target}`))) },
+        invertSpellKeyedTable(t, (spell, target) => `${spell} off ${target}`, dispelCountOf))) },
     // One UNFILTERED DamageTaken table, doing two jobs the filtered batches
     // can't. (a) Its per-player `total` is all damage taken — the honest
     // denominator for the avoidable %. (b) Its top-5 rows still resolve by
@@ -478,7 +506,7 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
     // so they share ONE pool of batches instead of running two sets: each table
     // is counted into both catalogues, and each catalogue ignores the other's
     // ids. Batching the pools together rather than separately also avoids a
-    // half-empty trailing batch per pool — 43 ids (25 consumable + 18 utility)
+    // half-empty trailing batch per pool — 42 ids (25 consumable + 17 utility)
     // cost 11 queries this way, 12 as two pools.
     ...batchIds([...CONSUMABLE_CAST_IDS, ...UTILITY_CAST_IDS]).map((ids) => ({
       query: FILTERED_TABLE_QUERY("Casts", ids),

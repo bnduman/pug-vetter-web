@@ -393,11 +393,13 @@ function cardHtml(c) {
            ability the catalogue doesn't know isn't counted (regenerate with <code>npm run gen:rule-ids</code>).
            <b>Used</b> counts potions, healthstones and drums consumed, not the flask you turned up with.
            <b>Utility</b> counts dispels landed, innervates cast, threat dropped (Fade, Vanish,
-           Soulshatter, Invisibility, Cower, Misdirection), Netherweave nets thrown and engineering
+           Soulshatter, Invisibility, Misdirection), Netherweave nets thrown and engineering
            bombs used — a dash means they did none of it, not that the data is missing.
            Dispels are ones that actually removed something, offensive purges included.
-           <b>Hunter Feign Death is not in the Anniversary combat log at all</b>, so it can never
-           appear here.`
+           Rotation-automatic credit is deliberately left out on both sides: a warrior's
+           Shield Slam purge doesn't count as a dispel, and a cat druid's Cower doesn't count
+           as a threat drop. <b>Hunter Feign Death is not in the Anniversary combat log at
+           all</b>, so it can never appear here.`
         : "Avoidable damage, interrupts, consumables used and raid utility need the deep scan above."}</p>
     ${deep?.failed ? `<p class="csi-hint warn">⚠ ${deep.failed} of ${deep.queries} query batches failed,
       so the ⚠ columns are <b>lower bounds</b> — a small number there may just be missing data.
