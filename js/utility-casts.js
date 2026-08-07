@@ -25,7 +25,7 @@
 //
 // Every id here was harvested from live Anniversary Casts tables
 // (hostilityType: Friendlies, viewBy: Ability — so `sources` proves a PLAYER
-// cast it), across 30 Kara/Gruul-Mag/SSC-TK reports on 2026-08-07. Two were
+// cast it), across 30-36 Kara/Gruul-Mag/SSC-TK reports on 2026-08-07. Two were
 // filled in from Wowhead because the sample happened not to contain them; they
 // are marked. To extend: find the ability's gameID in any report's masterData
 // and add it here. Unknown ids are simply not counted.

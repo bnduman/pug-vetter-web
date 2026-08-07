@@ -310,9 +310,10 @@ function emptyGroups(catalogue) {
 
 /** Count catalogued casts per player, from a Casts table filtered to that
  *  catalogue's ids. Used for two different catalogues — CONSUMABLE_CASTS
- *  (potions, stones, drums) and UTILITY_CASTS (nets, innervates, bombs) — which
- *  is why it takes the catalogue rather than closing over one: each ignores the
- *  other's ids, so one table can be counted into both without cross-talk.
+ *  (potions, stones, drums) and UTILITY_CASTS (nets, innervates, bombs, threat
+ *  drops) — which is why it takes the catalogue rather than closing over one:
+ *  each ignores the other's ids, so one table can be counted into both without
+ *  cross-talk.
  *  -> Map playerId -> { total, byGroup: {group -> count}, items: Map label -> count } */
 export function castCountsByCatalogue(entries, catalogue = CONSUMABLE_CASTS) {
   const out = new Map();
@@ -477,8 +478,8 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
     // so they share ONE pool of batches instead of running two sets: each table
     // is counted into both catalogues, and each catalogue ignores the other's
     // ids. Batching the pools together rather than separately also avoids a
-    // half-empty trailing batch per pool — 42 ids cost 11 queries this way, 12
-    // as two pools.
+    // half-empty trailing batch per pool — 43 ids (25 consumable + 18 utility)
+    // cost 11 queries this way, 12 as two pools.
     ...batchIds([...CONSUMABLE_CAST_IDS, ...UTILITY_CAST_IDS]).map((ids) => ({
       query: FILTERED_TABLE_QUERY("Casts", ids),
       apply: (t) => {

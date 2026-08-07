@@ -510,7 +510,7 @@ test("castCountsByCatalogue: groups by kind and ignores uncatalogued casts", () 
   assert.equal(r.get(2).byGroup.drums, 25);
 });
 
-// --- raid utility: nets / innervates / engineering bombs ----------------------
+// --- raid utility: nets / innervates / bombs / threat drops / dispels ---------
 
 test("castCountsByCatalogue: counts raid utility and ignores consumable ids", () => {
   const r = castCountsByCatalogue([
