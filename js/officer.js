@@ -173,12 +173,18 @@ function utilityCell(p) {
   if (!u || !u.total) return '<td class="mono dim">–</td>';
   const g = u.byGroup;
   // Same rule as usedCell: every group the total counts has to appear here, or
-  // the number and the breakdown under it disagree.
-  const brief = [
-    g.nets ? `${g.nets} nets` : "",
-    g.innervate ? `${g.innervate} innerv` : "",
-    g.bombs ? `${g.bombs} bombs` : "",
-  ].filter(Boolean).join(", ");
+  // the number and the breakdown under it disagree. Unlike consumables though,
+  // most players only ever use ONE of these three, and "12 / 12 bombs" prints
+  // the same number twice — so a single-group cell drops the repeated count and
+  // just names the group.
+  const parts = [
+    g.nets ? ["nets", g.nets] : null,
+    g.innervate ? ["innerv", g.innervate] : null,
+    g.bombs ? ["bombs", g.bombs] : null,
+  ].filter(Boolean);
+  const brief = parts.length === 1
+    ? parts[0][0]
+    : parts.map(([label, n]) => `${n} ${label}`).join(", ");
   const title = [...u.items.entries()].sort((a, b) => b[1] - a[1])
     .map(([n, v]) => `${n} ×${v}`).join("\n");
   return `<td class="mono ok" title="${esc(title)}">${u.total}<span class="off-cons">${esc(brief)}</span></td>`;
