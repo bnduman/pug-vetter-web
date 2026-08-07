@@ -576,21 +576,37 @@ test("threat drops count the CAST id, never the resulting aura", () => {
 });
 
 test("dispelsAsUtility: table credit becomes the utility shape", () => {
+  // The label must say the aura came OFF that unit. `actors` is the dispel
+  // TARGET here, but the same field is the CASTER in the Interrupts table —
+  // reusing the interrupt format would print a friendly cleanse as though the
+  // raid member had cast the debuff on themselves.
+  const off = (spell, target) => `${spell} off ${target}`;
   const inverted = invertSpellKeyedTable({ entries: [{ entries: [
     { name: "Fire Destruction", details: [
       { id: 14, total: 4, actors: [{ name: "Greyheart Nether-Mage" }] },
       { id: 36, total: 1, actors: [{ name: "Greyheart Nether-Mage" }] },
     ] },
-    { name: "Poisoned Thrust", details: [{ id: 14, total: 2, actors: [{ name: "Hydross" }] }] },
-  ] }] });
+    { name: "Flame Shock", details: [{ id: 14, total: 2, actors: [{ name: "Bluebrixx" }] }] },
+    { name: "Nameless", details: [{ id: 14, total: 1 }] }, // no actor recorded
+  ] }] }, off);
   const u = dispelsAsUtility(inverted);
   const a = u.get(14);
-  assert.equal(a.total, 6);
-  assert.equal(a.byGroup.dispels, 6);
-  // What was REMOVED is the useful detail, so it survives into the tooltip.
-  assert.equal(a.items.get("Fire Destruction (Greyheart Nether-Mage)"), 4);
-  assert.equal(a.items.get("Poisoned Thrust (Hydross)"), 2);
+  assert.equal(a.total, 7);
+  assert.equal(a.byGroup.dispels, 7);
+  // What was REMOVED, and off whom, is the useful detail in the tooltip.
+  assert.equal(a.items.get("Fire Destruction off Greyheart Nether-Mage"), 4);
+  assert.equal(a.items.get("Flame Shock off Bluebrixx"), 2);
+  assert.equal(a.items.get("Nameless"), 1);
   assert.equal(u.get(36).total, 1);
+});
+
+test("invertSpellKeyedTable: default label keeps the interrupt reading", () => {
+  // Interrupts must be untouched by the dispel label work: there `actors` IS
+  // the caster, so "Frostbolt (Staff of Disintegration)" is correct as-is.
+  const r = invertSpellKeyedTable({ entries: [{ entries: [
+    { name: "Frostbolt", details: [{ id: 20, total: 2, actors: [{ name: "Staff of Disintegration" }] }] },
+  ] }] });
+  assert.equal(r.get(20).spells.get("Frostbolt (Staff of Disintegration)"), 2);
 });
 
 test("dispels merge into the same utility totals as casts, without collision", () => {
@@ -600,14 +616,14 @@ test("dispels merge into the same utility totals as casts, without collision", (
   mergeCastCounts(utility, castCountsByCatalogue(
     [{ id: 7, abilities: [{ guid: 25429, name: "Fade", total: 3 }] }], UTILITY_CASTS));
   mergeCastCounts(utility, dispelsAsUtility(invertSpellKeyedTable({ entries: [{ entries: [
-    { name: "Chains of Ice", details: [{ id: 7, total: 5, actors: [{ name: "Vashj" }] }] },
-  ] }] })));
+    { name: "Chains of Ice", details: [{ id: 7, total: 5, actors: [{ name: "Bluebrixx" }] }] },
+  ] }] }, (spell, target) => `${spell} off ${target}`)));
   const e = utility.get(7);
   assert.equal(e.total, 8);
   assert.equal(e.byGroup.threat, 3);
   assert.equal(e.byGroup.dispels, 5);
   assert.equal(e.items.get("Fade"), 3);
-  assert.equal(e.items.get("Chains of Ice (Vashj)"), 5);
+  assert.equal(e.items.get("Chains of Ice off Bluebrixx"), 5);
 });
 
 test("the combined cast id pool batches under the top-5 table cap", () => {

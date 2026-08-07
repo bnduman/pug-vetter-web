@@ -271,10 +271,14 @@ export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {
  *  shapes the rest of this file does not apply and one unfiltered whole-report
  *  query is both complete and the cheapest option.
  *
- *  `actors[0]` reads correctly for both: the mob whose cast was interrupted, or
- *  the unit the aura was removed from.
- *  -> Map playerId -> { count, spells: Map "Spell (Source)" -> count } */
-export function invertSpellKeyedTable(table) {
+ *  `actors[0]` means DIFFERENT things in the two tables, which is why the label
+ *  is a parameter rather than one fixed format (verified live 2026-08-07):
+ *    Interrupts — the mob whose cast was stopped:  "Frostbolt (Staff of...)"
+ *    Dispels    — the unit the aura came OFF:      "Flame Shock off Bluebrixx"
+ *  Printing the dispel one in the interrupt's format would read as "cast by",
+ *  i.e. exactly backwards for a friendly cleanse.
+ *  -> Map playerId -> { count, spells: Map label -> count } */
+export function invertSpellKeyedTable(table, label = (spell, src) => `${spell} (${src})`) {
   const out = new Map();
   // shape: entries: [ { entries: [ { name, details: [...] } ] } ]
   const groups = (table?.entries ?? []).flatMap((g) => g?.entries ?? []);
@@ -286,8 +290,9 @@ export function invertSpellKeyedTable(table) {
       const n = d.total ?? 1;
       e.count += n;
       const src = (d.actors ?? [])[0]?.name;
-      const label = src ? `${spellName} (${src})` : spellName;
-      e.spells.set(label, (e.spells.get(label) ?? 0) + n);
+      // No actor recorded -> the bare spell name, in either table.
+      const key = src ? label(spellName, src) : spellName;
+      e.spells.set(key, (e.spells.get(key) ?? 0) + n);
       out.set(d.id, e);
     }
   }
@@ -452,7 +457,8 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
     // Shield Slam) alongside friendly cleanses; the tooltip names what was
     // removed, so the two stay tellable apart.
     { query: PLAIN_TABLE_QUERY("Dispels"),
-      apply: (t) => mergeCastCounts(utility, dispelsAsUtility(invertSpellKeyedTable(t))) },
+      apply: (t) => mergeCastCounts(utility, dispelsAsUtility(
+        invertSpellKeyedTable(t, (spell, target) => `${spell} off ${target}`))) },
     // One UNFILTERED DamageTaken table, doing two jobs the filtered batches
     // can't. (a) Its per-player `total` is all damage taken — the honest
     // denominator for the avoidable %. (b) Its top-5 rows still resolve by
