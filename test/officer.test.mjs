@@ -217,6 +217,50 @@ test("reportCardToDiscord: shames 'no consumable', lists lone-elixir separately"
   assert.ok(!clean.includes("Single elixir"), "no partial line when nobody is partial");
 });
 
+test("reportCardToDiscord: the naughty corner needs the deep scan", () => {
+  const card = { title: "t", players: [{ id: 1, name: "Nooberinho", perFight: null }] };
+  // The deep scan is opt-in. With no scan the lines must be ABSENT, never
+  // "nobody 🎉" — that would claim an innocent raid from data nobody fetched.
+  const without = reportCardToDiscord(card);
+  assert.ok(!without.includes("Blew up"), "no blast line without a scan");
+  assert.ok(!without.includes("Fall damage"), "no falling line without a scan");
+
+  // A scan that ran and found nothing DOES get to say nobody.
+  const idle = reportCardToDiscord(card, { friendlyFire: new Map(), falling: new Map() });
+  assert.match(idle, /💥 Blew up their own raid: nobody 🎉/);
+  assert.match(idle, /🪂 Fall damage: nobody 🎉/);
+});
+
+test("reportCardToDiscord: naughty lines name, total and truncate", () => {
+  const players = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `P${i + 1}`, perFight: null }));
+  const deep = {
+    friendlyFire: new Map([
+      ["Geatri", { total: 5294, mechanics: new Map([["Mark of Kaz'rogal", 5294]]) }],
+      ["Nooberinho", { total: 13241, mechanics: new Map([["Mark of Kaz'rogal", 13241]]) }],
+    ]),
+    // 8 fallers, plus one id that isn't on the roster and one zero.
+    falling: new Map([
+      ...players.map((p, i) => [p.id, (8 - i) * 1000]),
+      [99, 5000], [1000, 0],
+    ]),
+  };
+  const text = reportCardToDiscord({ title: "t", players }, deep);
+  // Sorted by damage desc, with the mechanic named and numbers grouped.
+  assert.match(text, /💥 Blew up their own raid: Nooberinho 13,241 \(Mark of Kaz'rogal\), Geatri 5,294/);
+  // 8 fallers -> 5 shown + "(+3 more)", and a raid total.
+  assert.match(text, /🪂 Fall damage: P1 8,000, P2 7,000, P3 6,000, P4 5,000, P5 4,000 \(\+3 more\) — 36,000 total/);
+  // An id with no roster entry can't be named, so it is dropped from both the
+  // list and the total rather than printed as "undefined".
+  assert.ok(!text.includes("undefined"), "unmatched ids must never render");
+});
+
+test("reportCardToDiscord: a degraded scan marks the naughty lines as lower bounds", () => {
+  const text = reportCardToDiscord(
+    { title: "t", players: [{ id: 1, name: "A", perFight: null }] },
+    { friendlyFire: new Map(), falling: new Map(), failed: 2, queries: 34 });
+  assert.match(text, /⚠ 2 of 34 query batches failed — the two lines above are lower bounds\./);
+});
+
 // --- night stats (officer-stats.js) -----------------------------------------
 
 test("deathsByPlayer: splits boss pulls from trash", () => {

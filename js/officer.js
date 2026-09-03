@@ -426,7 +426,9 @@ function cardHtml(c) {
       ${chip("Always fed", `${cov.alwaysFed}/${cov.tracked}`)}
       ${chip("Fully enchanted", `${cov.enchanted}/${cov.gearCovered}`)}
     </div>
-    <button id="off-copy" class="secondary" type="button">Copy for Discord</button>
+    <button id="off-copy" class="secondary" type="button" title="${deep
+      ? "Consumables, food, enchants, raid debuffs and the naughty corner"
+      : "Consumables, food, enchants and raid debuffs. Analyse the night first to include the naughty corner."}">Copy for Discord</button>
     ${deepButton(c)}
     <div class="csi-scroll"><table class="csi-table">
       <thead><tr><th>Player</th><th>Spec</th><th>Fights</th><th>Consumables</th><th>Food</th><th>Enchants</th>
@@ -639,7 +641,9 @@ function setDeepProgress(text) {
 async function copyCard(btn) {
   if (!card) return;
   try {
-    await navigator.clipboard.writeText(reportCardToDiscord(card));
+    // `deep` is null until the officer opts into the scan, and the export omits
+    // the naughty lines in that case rather than claiming an empty one.
+    await navigator.clipboard.writeText(reportCardToDiscord(card, deep));
     btn.textContent = "Copied!";
     setTimeout(() => (btn.textContent = "Copy for Discord"), 2000);
   } catch {

@@ -103,7 +103,34 @@ export function buildRoster(attMap, { recentWindow = 3, limit = 0 } = {}) {
 // ---------------------------------------------------------------------------
 // Discord export for the report card.
 
-export function reportCardToDiscord(card) {
+// How many names each naughty line lists before it truncates. The prep shame
+// lists above are unbounded because "who turned up unprepared" is the whole
+// point, but fall damage catches half the raid on a Hyjal night (20 players on
+// 26/08) and pasting all of them buries the message.
+const NAUGHTY_LIMIT = 5;
+
+// Pinned to en-US rather than the browser's locale, unlike the card's own
+// num(). The card is a personal view; this text is pasted into Discord for the
+// whole guild, so it must not change shape with whoever pressed Copy — a
+// Turkish officer's toLocaleString() renders 13241 as "13.241", which an
+// English-reading raid can fairly read as thirteen point two.
+const num = (n) => (n ?? 0).toLocaleString("en-US");
+
+/** "a, b, c (+4 more)" — keeps a long shame list pasteable. */
+function topNames(rows, limit = NAUGHTY_LIMIT) {
+  const shown = rows.slice(0, limit);
+  const rest = rows.length - shown.length;
+  return shown.join(", ") + (rest > 0 ? ` (+${rest} more)` : "");
+}
+
+/**
+ * @param card  the report card
+ * @param deep  optional fetchDeepStats() result. The deep scan is opt-in, so
+ *   when it hasn't been run the naughty lines are OMITTED rather than reported
+ *   as "nobody 🎉" — claiming an empty naughty corner from data nobody fetched
+ *   would be the same confident-zero mistake the Deaths column avoids.
+ */
+export function reportCardToDiscord(card, deep = null) {
   const lines = [`**${card.title} — raid prep**`];
   const known = card.players.filter((p) => p.perFight && p.perFight.attended > 0);
   // Shame threshold: below this fraction of pulls. A flask that ran out for
@@ -138,6 +165,28 @@ export function reportCardToDiscord(card) {
     .map((d) => `${d.label} ${d.pct}%`);
   if (card.debuffs) {
     lines.push(`🎯 Raid debuffs under 80%: ${weakDebuffs.join(", ") || "all covered 🎉"}`);
+  }
+
+  // --- naughty corner (deep scan only) ---
+  if (deep) {
+    const blast = [...(deep.friendlyFire ?? new Map()).entries()]
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([name, v]) => `${name} ${num(v.total)} (${[...v.mechanics.keys()].join(", ")})`);
+    // Falling is keyed by player id, so it needs the roster to become names.
+    const nameById = new Map(card.players.map((p) => [p.id, p.name]));
+    const fell = [...(deep.falling ?? new Map()).entries()]
+      .filter(([id, dmg]) => dmg > 0 && nameById.has(id))
+      .sort((a, b) => b[1] - a[1]);
+    const fallTotal = fell.reduce((n, [, d]) => n + d, 0);
+
+    lines.push(`💥 Blew up their own raid: ${topNames(blast) || "nobody 🎉"}`);
+    lines.push(`🪂 Fall damage: ${topNames(fell.map(([id, dmg]) => `${nameById.get(id)} ${num(dmg)}`))
+      || "nobody 🎉"}${fallTotal ? ` — ${num(fallTotal)} total` : ""}`);
+    // A degraded scan under-reports, and an under-reported shame list reads as
+    // an innocent one. Say so rather than letting a short list flatter anyone.
+    if (deep.failed) {
+      lines.push(`⚠ ${deep.failed} of ${deep.queries} query batches failed — the two lines above are lower bounds.`);
+    }
   }
   return lines.join("\n");
 }
