@@ -10,8 +10,11 @@
 //   deaths, so nothing is lost).
 //
 //   DEEP (~34 queries, opt-in): avoidable damage taken, interrupts, consumables
-//   used, and raid utility (dispels / innervates / threat drops / nets / bombs)
-//   — all across the WHOLE night, trash included.
+//   used, raid utility (dispels / innervates / threat drops / nets / bombs) and
+//   the naughty corner (friendly fire / fall damage) — all across the WHOLE
+//   night, trash included. The naughty corner rides existing queries and adds
+//   none: friendly fire falls out of the ability-sources table, and fall damage
+//   fits the avoidable batches without needing another one.
 //
 // THE TRUNCATION TRAP that shapes this file: a WCL table returns only each
 // player's TOP 5 abilities. It is not a time-window limit and there is no
@@ -42,6 +45,10 @@ import { RAID_DEBUFFS } from "./raid-debuffs.js";
 // Ability ids per filtered query. The table caps each player at 5 abilities,
 // so a batch of 4 can never be truncated.
 const IDS_PER_BATCH = 4;
+// WCL's ability id for fall damage. Deliberately NOT in the mechanic catalogue:
+// it is not a boss mechanic, and marking it avoidable there would blame players
+// for expected falls (Archimonde's Air Burst without Tears of the Goddess).
+const FALLING_ID = 3;
 // Filtered queries in flight at once — the rate limit is shared by every visitor.
 const STATS_CONCURRENCY = 4;
 
@@ -405,6 +412,73 @@ function mergeInterrupts(into, add) {
   return into;
 }
 
+// Naughty corner -----------------------------------------------------------
+//
+// Everything else on the card measures damage a player TOOK. These two measure
+// harm they CAUSED, which is the thing a raid leader actually wants a name for.
+
+// Source `type` values that are not a raider. WCL types players by class name,
+// so allow-listing every class would need updating each expansion — rejecting
+// the four non-player buckets is stable, and "Environment" is how falling and
+// other world damage is attributed.
+const NON_PLAYER_SOURCES = new Set(["Boss", "NPC", "Pet", "Environment"]);
+
+/**
+ * Who blew up their own raid, from a viewBy:Ability DamageTaken table.
+ *
+ * Only `chain` mechanics count: those are the catalogue entries whose damage
+ * propagates FROM a player (Mark of Kaz'rogal, Fatal Attraction, Static
+ * Charge), so `sources` names the culprit rather than the boss. Every other
+ * category is boss-dealt and has nobody to blame.
+ *
+ * KEYED BY NAME, not by player id, and deliberately: a source row is
+ * `{name, total, type, icon}` with NO actor id (verified live 2026-09-03), so a
+ * name is the only join available back to the roster.
+ *
+ * TRUNCATION: `sources` is capped at the top 5 per ability, the same cap that
+ * shapes the rest of this file — measured on Static Charge, where five listed
+ * sources summed to 201,256 of a 271,307 total. That is fine for "who were the
+ * worst offenders" and wrong for a complete per-player tally, so this must not
+ * be re-used as one.
+ * -> Map playerName -> { total, mechanics: Map label -> damage }
+ */
+export function friendlyFireFromAbilities(entries) {
+  const out = new Map();
+  for (const a of entries ?? []) {
+    const rule = lookupRule(a.name, a.guid);
+    if (rule?.category !== "chain") continue;
+    // The catalogue is name-keyed, so a mechanic's harmless twin can share the
+    // key: Kaz'rogal's 31447 mana-drain debuff resolves here exactly like the
+    // 31463 explosion does, but deals no damage and carries no sources at all.
+    for (const s of a.sources ?? []) {
+      if (!s?.name || NON_PLAYER_SOURCES.has(s.type)) continue;
+      const dmg = s.total ?? 0;
+      if (dmg <= 0) continue;
+      const e = out.get(s.name) ?? { total: 0, mechanics: new Map() };
+      e.total += dmg;
+      const label = a.name ?? `#${a.guid}`;
+      e.mechanics.set(label, (e.mechanics.get(label) ?? 0) + dmg);
+      out.set(s.name, e);
+    }
+  }
+  return out;
+}
+
+/** Fall damage per player, from a DamageTaken table filtered to ability 3.
+ *  No culprit lookup needed: WCL attributes falling to "Environment", so the
+ *  victim IS the offender. -> Map playerId -> damage */
+export function fallingByPlayer(entries) {
+  const out = new Map();
+  for (const p of entries ?? []) {
+    if (p?.id == null) continue;
+    for (const a of p.abilities ?? []) {
+      if (a.guid !== FALLING_ID) continue;
+      out.set(p.id, (out.get(p.id) ?? 0) + (a.total ?? 0));
+    }
+  }
+  return out;
+}
+
 /** Re-shape an inverted spell-keyed table into the same {total,byGroup,items}
  *  shape the cast catalogues produce, so dispels can be folded into the utility
  *  totals alongside nets/innervates/bombs/threat despite coming from a
@@ -444,17 +518,19 @@ export async function fetchDebuffUptimes(code, encounterFightIds, comp = null) {
 const deepCache = new Map(); // code -> deep stats (session-only; it's expensive)
 
 /**
- * Per-player avoidable damage, interrupts, consumables and raid utility for the
- * WHOLE night, trash included. Opt-in: ~34 filtered queries against a shared
- * rate limit.
- * -> { avoidable, interrupts, consumables, utility: Map id->{...}, queries, failed }
+ * Per-player avoidable damage, interrupts, consumables, raid utility and the
+ * naughty corner for the WHOLE night, trash included. Opt-in: ~34 filtered
+ * queries against a shared rate limit.
+ * -> { avoidable, interrupts, consumables, utility, falling: Map id->…,
+ *      friendlyFire: Map NAME->…, queries, failed }
  */
 export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(), onProgress = () => {}) {
   if (deepCache.has(code)) return deepCache.get(code);
   if (!code || !(reportDurationMs > 0)) {
     return {
       avoidable: new Map(), interrupts: new Map(), consumables: new Map(),
-      utility: new Map(), queries: 0, failed: 0,
+      utility: new Map(), falling: new Map(), friendlyFire: new Map(),
+      queries: 0, failed: 0,
     };
   }
   const vars = { code, start: 0, end: reportDurationMs };
@@ -462,6 +538,8 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   const interrupts = new Map();
   const consumables = new Map();
   const utility = new Map();
+  const falling = new Map();
+  let friendlyFire = new Map();
 
   // Each job is one query. Interrupts needs no filter — its table is keyed by
   // the interrupted spell, not by a per-player ability list, so the top-5 cap
@@ -472,8 +550,16 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   // Who dealt what, fetched first because the unfiltered pass below needs it to
   // reject players' own abilities. One query; on failure we get an empty map and
   // fall back to the previous (unguarded) behaviour rather than losing the scan.
+  //
+  // This table also answers the naughty corner's friendly-fire half for free —
+  // it is the only view carrying `sources`, and it is unfiltered, so every chain
+  // mechanic's culprits are already in it. No extra query for that half.
   const hostileById = await postGraphQL(ABILITY_SOURCES_QUERY, vars)
-    .then((r) => abilityHostility(unwrap(r.reportData?.report?.table).entries))
+    .then((r) => {
+      const entries = unwrap(r.reportData?.report?.table).entries;
+      friendlyFire = friendlyFireFromAbilities(entries);
+      return abilityHostility(entries);
+    })
     .catch(() => new Map());
 
   const jobs = [
@@ -498,9 +584,24 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
       apply: (t) => mergeAvoidable(avoidable,
         avoidableFromDamageTaken(t.entries, roleById,
           { skipIds: trackedSet, recordTotal: true, hostileById })) },
-    ...batchIds(trackedIds).map((ids) => ({
+    // Fall damage rides along in this pool rather than paying for a query of
+    // its own. It has to be ASKED for — it is small next to boss damage and
+    // would be crowded out of most players' top 5 — but 73 ids and 74 ids both
+    // batch to 19 queries, so the naughty corner's gravity half is free.
+    // Measured: giving it a query of its own cost 8 points, more than the
+    // per-query average, because a filtered DamageTaken still scans the report.
+    //
+    // Both readers are applied to every batch and neither disturbs the other:
+    // fallingByPlayer takes only ability 3, and `falling` is deliberately absent
+    // from the mechanic catalogue, so avoidableFromDamageTaken skips it.
+    ...batchIds([...trackedIds, FALLING_ID]).map((ids) => ({
       query: FILTERED_TABLE_QUERY("DamageTaken", ids),
-      apply: (t) => mergeAvoidable(avoidable, avoidableFromDamageTaken(t.entries, roleById)),
+      apply: (t) => {
+        mergeAvoidable(avoidable, avoidableFromDamageTaken(t.entries, roleById));
+        for (const [id, n] of fallingByPlayer(t.entries)) {
+          falling.set(id, (falling.get(id) ?? 0) + n);
+        }
+      },
     })),
     // Consumables and raid utility are both Casts tables filtered by ability id,
     // so they share ONE pool of batches instead of running two sets: each table
@@ -532,7 +633,10 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   }
 
   // +1 for the ability-sources query above, which the card counts too.
-  const result = { avoidable, interrupts, consumables, utility, queries: jobs.length + 1, failed };
+  const result = {
+    avoidable, interrupts, consumables, utility, falling, friendlyFire,
+    queries: jobs.length + 1, failed,
+  };
   // Only a COMPLETE scan is cached. Caching a degraded one would pin the
   // missing numbers for the whole session: the early return above would hand
   // the same short totals back to every retry without issuing a query, and a

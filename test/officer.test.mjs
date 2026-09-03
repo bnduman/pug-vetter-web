@@ -8,7 +8,8 @@ import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
   abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
   castCountsByCatalogue, deathsByPlayer, debuffUptimes, dispelCountOf,
-  dispelsAsUtility, invertSpellKeyedTable, mergeBands, mergeCastCounts,
+  dispelsAsUtility, fallingByPlayer, friendlyFireFromAbilities,
+  invertSpellKeyedTable, mergeBands, mergeCastCounts,
 } from "../js/officer-stats.js";
 import { CONSUMABLE_CASTS, CONSUMABLE_CAST_IDS } from "../js/consumable-casts.js";
 import { UTILITY_CASTS, UTILITY_CAST_IDS } from "../js/utility-casts.js";
@@ -653,6 +654,67 @@ test("dispels merge into the same utility totals as casts, without collision", (
   assert.equal(e.byGroup.dispels, 5);
   assert.equal(e.items.get("Fade"), 3);
   assert.equal(e.items.get("Chains of Ice off Bluebrixx"), 5);
+});
+
+// --- naughty corner ----------------------------------------------------------
+
+test("friendlyFireFromAbilities: blames the player the damage came FROM", () => {
+  const ff = friendlyFireFromAbilities([
+    // The explosion: player-sourced, so `sources` names the culprits.
+    { guid: 31463, name: "Mark of Kaz'rogal", total: 18535, sources: [
+      { name: "Nooberinho", type: "Hunter", total: 13241 },
+      { name: "Geatri", type: "Hunter", total: 5294 },
+    ] },
+    // Its harmless twin. Same catalogue key by name, no damage, and live data
+    // gives it NO sources array at all — this must not throw or invent a row.
+    { guid: 31447, name: "Mark of Kaz'rogal", total: 0 },
+    // A boss mechanic: not `chain`, so nobody is blamed however big it is.
+    { guid: 31258, name: "Death & Decay", total: 1420670, sources: [
+      { name: "Rage Winterchill", type: "Boss", total: 1420670 },
+    ] },
+    // A chain mechanic the BOSS dealt — no culprit to name.
+    { guid: 39968, name: "Needle Spine Explosion", total: 5000, sources: [
+      { name: "Naj'entus", type: "Boss", total: 5000 },
+    ] },
+    { guid: 38281, name: "Static Charge", total: 900, sources: [
+      { name: "Nooberinho", type: "Hunter", total: 900 },
+      { name: "A Pet", type: "Pet", total: 400 },
+    ] },
+  ]);
+  assert.deepEqual([...ff.keys()].sort(), ["Geatri", "Nooberinho"]);
+  const n = ff.get("Nooberinho");
+  assert.equal(n.total, 14141, "damage adds across different mechanics");
+  assert.equal(n.mechanics.get("Mark of Kaz'rogal"), 13241);
+  assert.equal(n.mechanics.get("Static Charge"), 900);
+  assert.ok(!ff.has("Rage Winterchill"), "boss-dealt damage blames nobody");
+  assert.ok(!ff.has("Naj'entus"), "a boss-sourced chain mechanic blames nobody");
+  assert.ok(!ff.has("A Pet"), "pets are not raiders");
+});
+
+test("friendlyFireFromAbilities: survives an empty or absent table", () => {
+  assert.equal(friendlyFireFromAbilities(undefined).size, 0);
+  assert.equal(friendlyFireFromAbilities([]).size, 0);
+  // A chain row with an empty source list, and one with zero damage.
+  assert.equal(friendlyFireFromAbilities([
+    { guid: 31463, name: "Mark of Kaz'rogal", total: 0, sources: [] },
+    { guid: 38281, name: "Static Charge", total: 0, sources: [{ name: "X", type: "Mage", total: 0 }] },
+  ]).size, 0);
+});
+
+test("fallingByPlayer: fall damage only, keyed by the victim", () => {
+  const f = fallingByPlayer([
+    { id: 4, abilities: [
+      { guid: 3, name: "Falling", total: 17644 },
+      { guid: 31258, name: "Death & Decay", total: 99999 }, // not falling
+    ] },
+    { id: 9, abilities: [{ guid: 3, name: "Falling", total: 436 }] },
+    { id: 12, abilities: [{ guid: 31969, name: "Doomfire", total: 500 }] },
+    { abilities: [{ guid: 3, name: "Falling", total: 1 }] }, // no id: dropped
+  ]);
+  assert.equal(f.get(4), 17644);
+  assert.equal(f.get(9), 436);
+  assert.ok(!f.has(12), "a player who never fell gets no entry");
+  assert.equal(f.size, 2);
 });
 
 test("the combined cast id pool batches under the top-5 table cap", () => {

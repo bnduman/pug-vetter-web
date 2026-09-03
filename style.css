@@ -413,6 +413,10 @@ footer a { color: var(--accent); }
 #officer .off-h4 { margin: 22px 0 2px; font-size: 15px; }
 #officer .off-debuffs td:nth-child(2) { width: 56px; text-align: right; }
 #officer .off-debuffs td:nth-child(3) { width: 34%; }
+#officer .off-naughty td:nth-child(2) { width: 90px; text-align: right; }
+/* Section headers inside the naughty table: they separate the two halves, so
+   they must not read as a player row. */
+#officer .off-naughty-head td { background: var(--panel); color: var(--muted); }
 #officer .off-bar {
   display: block; height: 8px; border-radius: 4px;
   background: var(--panel-2); border: 1px solid var(--line); overflow: hidden;

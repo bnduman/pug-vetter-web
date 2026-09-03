@@ -198,6 +198,63 @@ function utilityCell(p) {
   return `<td class="mono ok" title="${esc(title)}">${u.total}<span class="off-cons">${esc(brief)}</span></td>`;
 }
 
+// 😈 Naughty corner. Everything else on the card grades what happened TO a
+// player; this is the two things they did to everyone else. Its own panel
+// rather than more columns, because it names a handful of people rather than
+// scoring the whole roster — and because both halves want a plain "nobody 🎉".
+function naughtyHtml() {
+  if (!deep) return "";
+
+  // Friendly fire is keyed by NAME (WCL's `sources` rows carry no actor id), so
+  // this is the one place the card joins on a name rather than a player id.
+  // Class-colour it by matching the roster; an unmatched name still lists.
+  const classOf = new Map((card?.players ?? []).map((p) => [p.name, p.class]));
+  const blast = [...deep.friendlyFire.entries()]
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([name, v]) => {
+      const color = CLASS_COLORS[classOf.get(name)] ?? "var(--text)";
+      const what = [...v.mechanics.entries()].sort((a, b) => b[1] - a[1]);
+      return `<tr>
+        <td><span style="color:${color}">${esc(name)}</span></td>
+        <td class="mono bad">${num(v.total)}</td>
+        <td class="dim" title="${esc(what.map(([m, d]) => `${m}: ${num(d)}`).join("\n"))}">${esc(what.map(([m]) => m).join(", "))}</td>
+      </tr>`;
+    }).join("");
+
+  const fell = [...deep.falling.entries()]
+    .map(([id, dmg]) => [(card?.players ?? []).find((p) => p.id === id), dmg])
+    .filter(([p, dmg]) => p && dmg > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const gravity = fell.map(([p, dmg]) => {
+    const color = CLASS_COLORS[p.class] ?? "var(--text)";
+    return `<tr><td><span style="color:${color}">${esc(p.name)}</span></td>
+      <td class="mono warn">${num(dmg)}</td><td class="dim">fall damage</td></tr>`;
+  }).join("");
+
+  const totalFall = fell.reduce((n, [, d]) => n + d, 0);
+  const empty = (what) => `<tr><td colspan="3" class="dim">${what}</td></tr>`;
+
+  return `
+    <h4 class="off-h4">😈 Naughty corner</h4>
+    <div class="csi-scroll"><table class="csi-table off-naughty">
+      <thead><tr><th>Player</th><th>Damage</th><th>What they did</th></tr></thead>
+      <tbody>
+        <tr class="off-naughty-head"><td colspan="3"><b>Blast radius</b>
+          — damage dealt to their own raid</td></tr>
+        ${blast || empty("Nobody blew anyone up 🎉")}
+        <tr class="off-naughty-head"><td colspan="3"><b>Gravity</b>
+          — fall damage${totalFall ? ` (${num(totalFall)} across the raid)` : ""}</td></tr>
+        ${gravity || empty("Everyone stayed on the floor 🎉")}
+      </tbody>
+    </table></div>
+    <p class="csi-hint"><b>Blast radius</b> counts only mechanics that propagate FROM a player
+      — Mark of Kaz'rogal, Fatal Attraction, Static Charge and the like — so the number is damage
+      they did to <em>other people</em>, not damage they took. Warcraft Logs lists at most the
+      <b>top 5 sources</b> per mechanic, so this is the worst offenders rather than a complete tally.
+      <b>Gravity</b> is fall damage; Archimonde's Air Burst counts, so a Hyjal night will show some
+      honestly-earned falls.</p>`;
+}
+
 // --- screens ---------------------------------------------------------------
 
 // The visible spinner carries no live-region role of its own: this markup is
@@ -274,7 +331,7 @@ function deepButton(c) {
     return `<span class="off-deep-done">✓ Whole night analysed (${deep.queries} queries, trash included)</span>`;
   }
   return `<button id="off-deep" class="secondary" type="button"
-    title="Avoidable damage, interrupts, consumables and raid utility (dispels / innervates / threat drops / nets / bombs) for the whole night — trash included, not just the ${pulls} boss pulls (~34 queries on the shared Warcraft Logs key)">
+    title="Avoidable damage, interrupts, consumables, raid utility (dispels / innervates / threat drops / nets / bombs) and the naughty corner for the whole night — trash included, not just the ${pulls} boss pulls (~34 queries on the shared Warcraft Logs key)">
     Analyse night</button>`;
 }
 
@@ -405,7 +462,8 @@ function cardHtml(c) {
       so the ⚠ columns are <b>lower bounds</b> — a small number there may just be missing data.
       Re-analyse above to fill them in.</p>` : ""}
     <h4 class="off-h4">Raid debuffs</h4>
-    ${debuffsHtml(c)}`;
+    ${debuffsHtml(c)}
+    ${naughtyHtml()}`;
 }
 
 function rosterHtml() {
