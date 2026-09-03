@@ -252,8 +252,11 @@ function naughtyHtml() {
       — Mark of Kaz'rogal, Fatal Attraction, Static Charge and the like — so the number is damage
       they did to <em>other people</em>, not damage they took. Warcraft Logs lists at most the
       <b>top 5 sources</b> per mechanic, so this is the worst offenders rather than a complete tally.
-      <b>Gravity</b> is fall damage; Archimonde's Air Burst counts, so a Hyjal night will show some
-      honestly-earned falls.</p>`;
+      <b>Gravity</b> is fall damage across the whole night, and Archimonde's Air Burst counts —
+      measured at <b>95%</b> of the falls on a Hyjal night, so expect most of this list to be him.
+      Kept in on purpose. Worth knowing before anyone protests: Tears of the Goddess only
+      <em>slows</em> the fall rather than cancelling it, so most of these names did use theirs.
+      Black Temple has no fall mechanic at all, so a BT night's falls are entirely self-inflicted.</p>`;
 }
 
 // --- screens ---------------------------------------------------------------
