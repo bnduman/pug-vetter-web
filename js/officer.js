@@ -256,7 +256,7 @@ function renderView(error) {
     </div>`;
 }
 
-// The deep scan costs a fixed ~26 whole-report queries against a rate limit
+// The deep scan costs a fixed ~34 whole-report queries against a rate limit
 // shared by every visitor, so it's never automatic — the officer asks for it,
 // and the button says up front what it will cost.
 function deepButton(c) {
@@ -274,7 +274,7 @@ function deepButton(c) {
     return `<span class="off-deep-done">✓ Whole night analysed (${deep.queries} queries, trash included)</span>`;
   }
   return `<button id="off-deep" class="secondary" type="button"
-    title="Avoidable damage, interrupts, consumables and raid utility (dispels / innervates / threat drops / nets / bombs) for the whole night — trash included, not just the ${pulls} boss pulls (~26 queries on the shared Warcraft Logs key)">
+    title="Avoidable damage, interrupts, consumables and raid utility (dispels / innervates / threat drops / nets / bombs) for the whole night — trash included, not just the ${pulls} boss pulls (~34 queries on the shared Warcraft Logs key)">
     Analyse night</button>`;
 }
 

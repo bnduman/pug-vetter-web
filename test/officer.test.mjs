@@ -573,7 +573,7 @@ test("threat drops count the CAST id, never the resulting aura", () => {
   for (const id of [66, 34477, 29858, 26889]) {
     assert.equal(UTILITY_CASTS[id].group, "threat");
   }
-  // Druid Cower is excluded BY DECISION (2026-08-07), not by oversight: spammed
+  // Druid Cower is excluded BY DECISION (2026-09-03), not by oversight: spammed
   // on cooldown it posted 44 in a night and drowned the deliberate drops.
   assert.ok(!(27004 in UTILITY_CASTS), "Cower was deliberately removed — see utility-casts.js");
 });
@@ -605,7 +605,7 @@ test("dispelsAsUtility: table credit becomes the utility shape", () => {
 
 test("dispelCountOf: Shield Slam's automatic purge is subtracted", () => {
   // A detail row's `abilities` names what the dispeller cast, with per-ability
-  // totals summing to the row's total (verified live 2026-08-07).
+  // totals summing to the row's total (verified live 2026-09-03).
   // Mixed row: 3 real dispels + 2 Shield Slams -> only the 3 count.
   assert.equal(dispelCountOf({ total: 5, abilities: [
     { name: "Cleanse", total: 3 }, { name: "Shield Slam", total: 2 },

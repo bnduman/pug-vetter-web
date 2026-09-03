@@ -9,7 +9,7 @@
 //   whole-report vs 132 summed per-encounter; the extra 24 are the trash
 //   deaths, so nothing is lost).
 //
-//   DEEP (~26 queries, opt-in): avoidable damage taken, interrupts, consumables
+//   DEEP (~34 queries, opt-in): avoidable damage taken, interrupts, consumables
 //   used, and raid utility (dispels / innervates / threat drops / nets / bombs)
 //   — all across the WHOLE night, trash included.
 //
@@ -272,7 +272,7 @@ export function avoidableFromDamageTaken(entries, roleById = new Map(), opts = {
  *  query is both complete and the cheapest option.
  *
  *  `actors[0]` means DIFFERENT things in the two tables, which is why the label
- *  is a parameter rather than one fixed format (verified live 2026-08-07):
+ *  is a parameter rather than one fixed format (verified live 2026-09-03):
  *    Interrupts — the mob whose cast was stopped:  "Frostbolt (Staff of...)"
  *    Dispels    — the unit the aura came OFF:      "Flame Shock off Bluebrixx"
  *  Printing the dispel one in the interrupt's format would read as "cast by",
@@ -307,7 +307,7 @@ export function invertSpellKeyedTable(table, label = (spell, src) => `${spell} (
   return out;
 }
 
-// Dispelling abilities whose credit is NOT counted (decision, 2026-08-07): a
+// Dispelling abilities whose credit is NOT counted (decision, 2026-09-03): a
 // warrior's Shield Slam purges an enemy buff automatically as part of the tank
 // rotation — real value, but not a decision, and it drowned the column in
 // rotation noise (10 "dispels" on a tank who never pressed a dispel button).
@@ -445,7 +445,7 @@ const deepCache = new Map(); // code -> deep stats (session-only; it's expensive
 
 /**
  * Per-player avoidable damage, interrupts, consumables and raid utility for the
- * WHOLE night, trash included. Opt-in: ~26 filtered queries against a shared
+ * WHOLE night, trash included. Opt-in: ~34 filtered queries against a shared
  * rate limit.
  * -> { avoidable, interrupts, consumables, utility: Map id->{...}, queries, failed }
  */

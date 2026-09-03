@@ -25,7 +25,7 @@
 //
 // Every id here was harvested from live Anniversary Casts tables
 // (hostilityType: Friendlies, viewBy: Ability — so `sources` proves a PLAYER
-// cast it), across 30-36 Kara/Gruul-Mag/SSC-TK reports on 2026-08-07. Two were
+// cast it), across 30-36 Kara/Gruul-Mag/SSC-TK reports on 2026-09-03. Two were
 // filled in from Wowhead because the sample happened not to contain them; they
 // are marked. To extend: find the ability's gameID in any report's masterData
 // and add it here. Unknown ids are simply not counted.
@@ -74,13 +74,13 @@ export const UTILITY_CASTS = {
   10941: { label: "Fade", group: "threat" },
 };
 
-// NOT COUNTED, by decision (2026-08-07): druid Cower (27004). It's a real
+// NOT COUNTED, by decision (2026-09-03): druid Cower (27004). It's a real
 // threat drop, but a cat spamming it on cooldown posted 44 in one night next to
 // a warlock's 7 deliberate Soulshatters, drowning the group in rotation noise.
 // The other threat drops are decisions; Cower is a button. Same reasoning
 // removed Shield Slam's automatic purge from the dispel count (officer-stats).
 //
-// NOT COUNTABLE: hunter Feign Death. Verified 2026-08-07 — 5384 returns nothing
+// NOT COUNTABLE: hunter Feign Death. Verified 2026-09-03 — 5384 returns nothing
 // from a direct filterExpression Casts query across 6 guild reports that each
 // had 2-3 hunters in them, and /feign/ matches nothing in any of those reports'
 // masterData, nor in 30 public reports. The Anniversary combat log simply does
