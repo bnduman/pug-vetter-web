@@ -205,16 +205,16 @@ test("reportCardToDiscord: shames 'no consumable', lists lone-elixir separately"
     ],
   };
   const text = reportCardToDiscord(card);
-  assert.match(text, /Went in unmedicated[^\n]*: Cheaper 1\/8/);
-  assert.ok(!/unmedicated[^\n]*Elixdude/.test(text), "lone-elixir must not be in the 'no consumable' list");
-  assert.match(text, /One elixir, no flask[^\n]*: Elixdude/);
+  assert.match(text, /Saving consumables for Wrath: Cheaper 1\/8/);
+  assert.ok(!/Saving consumables[^\n]*Elixdude/.test(text), "lone-elixir must not be in the 'no consumable' list");
+  assert.match(text, /Why use many elixirs when one do the trick: Elixdude/);
   // enchants are itemized by slot, not just counted
-  assert.match(text, /Still saving up for enchants: Cheaper \(Back, Feet, Weapon\)/);
+  assert.match(text, /Enchanting your gear remains an exciting future project: Cheaper \(Back, Feet, Weapon\)/);
   assert.ok(!text.includes("Good"), "flask user must not be shamed anywhere");
 
   const clean = reportCardToDiscord({ title: "t", players: [card.players[0]] });
-  assert.match(clean, /Went in unmedicated[^\n]*: nobody 🎉/);
-  assert.ok(!clean.includes("One elixir"), "no partial line when nobody is partial");
+  assert.match(clean, /Saving consumables for Wrath: nobody 🎉/);
+  assert.ok(!clean.includes("Why use many elixirs"), "no partial line when nobody is partial");
 });
 
 test("reportCardToDiscord: the jokes stay on the behaviour, never on a person", () => {
@@ -240,12 +240,12 @@ test("reportCardToDiscord: the naughty corner needs the deep scan", () => {
   // "nobody 🎉" — that would claim an innocent raid from data nobody fetched.
   const without = reportCardToDiscord(card);
   assert.ok(!without.includes("Blew up"), "no blast line without a scan");
-  assert.ok(!without.includes("Fall damage"), "no falling line without a scan");
+  assert.ok(!without.includes("have a ground"), "no falling line without a scan");
 
   // A scan that ran and found nothing DOES get to say nobody.
   const idle = reportCardToDiscord(card, { friendlyFire: new Map(), falling: new Map() });
-  assert.match(idle, /💥 Shared the damage with everyone nearby: nobody, remarkably 🎉/);
-  assert.match(idle, /🪂 Lost an argument with gravity: everyone stayed on the floor 🎉/);
+  assert.match(idle, /💥 Friendly fire hurts even more: nobody, remarkably 🎉/);
+  assert.match(idle, /🪂 Nobody found the ground the hard way 🎉/);
 });
 
 test("reportCardToDiscord: naughty lines name, total and truncate", () => {
@@ -261,14 +261,34 @@ test("reportCardToDiscord: naughty lines name, total and truncate", () => {
       [99, 5000], [1000, 0],
     ]),
   };
-  const text = reportCardToDiscord({ title: "t", players }, deep);
+  const text = reportCardToDiscord({ title: "t", zone: "BT / Hyjal", players }, deep);
   // Sorted by damage desc, with the mechanic named and numbers grouped.
-  assert.match(text, /💥 Shared the damage with everyone nearby: Nooberinho 13,241 \(Mark of Kaz'rogal\), Geatri 5,294/);
-  // 8 fallers -> 5 shown + "(+3 more)", and a raid total.
-  assert.match(text, /🪂 Lost an argument with gravity: P1 8,000, P2 7,000, P3 6,000, P4 5,000, P5 4,000 \(\+3 more\) — 36,000 total/);
+  assert.match(text, /💥 Friendly fire hurts even more: Nooberinho 13,241 \(Mark of Kaz'rogal\), Geatri 5,294/);
+  // The falling LABEL is generated: it counts the fallers (spelled out) and
+  // names the zone. 8 fallers -> 5 shown + "(+3 more)", and a raid total.
+  // The unrostered id 99 must not inflate the count to Nine.
+  assert.match(text, /🪂 Eight raiders discovered that BT \/ Hyjal does, in fact, have a ground: P1 8,000, P2 7,000, P3 6,000, P4 5,000, P5 4,000 \(\+3 more\) — 36,000 total/);
   // An id with no roster entry can't be named, so it is dropped from both the
   // list and the total rather than printed as "undefined".
   assert.ok(!text.includes("undefined"), "unmatched ids must never render");
+});
+
+test("reportCardToDiscord: the falling line agrees with itself", () => {
+  const card1 = { title: "t", zone: "Karazhan", players: [{ id: 1, name: "Solo", perFight: null }] };
+  // Singular, and a count word rather than a digit.
+  assert.match(reportCardToDiscord(card1, { friendlyFire: new Map(), falling: new Map([[1, 500]]) }),
+    /🪂 One raider discovered that Karazhan does, in fact, have a ground: Solo 500 — 500 total/);
+
+  // Past the spelled-out range it falls back to digits rather than inventing a word.
+  const many = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, name: `P${i + 1}`, perFight: null }));
+  const text = reportCardToDiscord({ title: "t", zone: "BT / Hyjal", players: many },
+    { friendlyFire: new Map(), falling: new Map(many.map((p) => [p.id, 100])) });
+  assert.match(text, /🪂 15 raiders discovered/);
+
+  // No zone on the card -> a phrasing that still reads as a sentence.
+  assert.match(reportCardToDiscord({ title: "t", players: [{ id: 1, name: "Solo", perFight: null }] },
+    { friendlyFire: new Map(), falling: new Map([[1, 500]]) }),
+    /discovered that this place does, in fact, have a ground/);
 });
 
 test("reportCardToDiscord: a degraded scan marks the naughty lines as lower bounds", () => {

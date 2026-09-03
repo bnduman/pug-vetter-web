@@ -116,6 +116,15 @@ const NAUGHTY_LIMIT = 5;
 // English-reading raid can fairly read as thirteen point two.
 const num = (n) => (n ?? 0).toLocaleString("en-US");
 
+// "Eleven raiders discovered…" reads better than "11 raiders" in a sentence, so
+// small counts are spelled out and larger ones stay numeric — past twelve the
+// word is longer than the number and the joke has stopped being the point.
+const COUNT_WORDS = [
+  "Nobody", "One", "Two", "Three", "Four", "Five", "Six",
+  "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve",
+];
+const countWord = (n) => COUNT_WORDS[n] ?? String(n);
+
 /** "a, b, c (+4 more)" — keeps a long shame list pasteable. */
 function topNames(rows, limit = NAUGHTY_LIMIT) {
   const shown = rows.slice(0, limit);
@@ -157,10 +166,10 @@ export function reportCardToDiscord(card, deep = null) {
   // so the joke is on the BEHAVIOUR and never on the person. Each label still
   // names the metric, because a raid leader has to be able to read it at a
   // glance — the ratios and numbers that follow do the actual work.
-  lines.push(`🧪 Went in unmedicated, half their pulls or worse: ${consShame.join(", ") || "nobody 🎉"}`);
-  if (partial.length) lines.push(`⚗️ One elixir, no flask — technically something: ${partial.join(", ")}`);
-  lines.push(`🍖 Raided on an empty stomach: ${foodShame.join(", ") || "nobody 🎉"}`);
-  lines.push(`✨ Still saving up for enchants: ${enchShame.join(", ") || "nobody 🎉"}`);
+  lines.push(`🧪 Saving consumables for Wrath: ${consShame.join(", ") || "nobody 🎉"}`);
+  if (partial.length) lines.push(`⚗️ Why use many elixirs when one do the trick: ${partial.join(", ")}`);
+  lines.push(`🍖 Protein cap not reached (no food buff): ${foodShame.join(", ") || "nobody 🎉"}`);
+  lines.push(`✨ Enchanting your gear remains an exciting future project: ${enchShame.join(", ") || "nobody 🎉"}`);
   // Only debuffs somebody could actually apply, and only the ones worth a
   // callout — a full checklist would drown the message.
   const weakDebuffs = (card.debuffs?.rows ?? [])
@@ -183,9 +192,17 @@ export function reportCardToDiscord(card, deep = null) {
       .sort((a, b) => b[1] - a[1]);
     const fallTotal = fell.reduce((n, [, d]) => n + d, 0);
 
-    lines.push(`💥 Shared the damage with everyone nearby: ${topNames(blast) || "nobody, remarkably 🎉"}`);
-    lines.push(`🪂 Lost an argument with gravity: ${topNames(fell.map(([id, dmg]) => `${nameById.get(id)} ${num(dmg)}`))
-      || "everyone stayed on the floor 🎉"}${fallTotal ? ` — ${num(fallTotal)} total` : ""}`);
+    lines.push(`💥 Friendly fire hurts even more: ${topNames(blast) || "nobody, remarkably 🎉"}`);
+    // The one line whose LABEL is generated rather than fixed: it counts the
+    // fallers and names where they landed. `card.zone` is whatever Warcraft
+    // Logs calls the zone, which for Tier 6 is the combined "BT / Hyjal" rather
+    // than the specific wing — telling the two apart would need a boss-to-wing
+    // map this file has no other use for.
+    lines.push(fell.length
+      ? `🪂 ${countWord(fell.length)} raider${fell.length === 1 ? "" : "s"} discovered that `
+        + `${card.zone ?? "this place"} does, in fact, have a ground: `
+        + `${topNames(fell.map(([id, dmg]) => `${nameById.get(id)} ${num(dmg)}`))} — ${num(fallTotal)} total`
+      : "🪂 Nobody found the ground the hard way 🎉");
     // A degraded scan under-reports, and an under-reported shame list reads as
     // an innocent one. Say so rather than letting a short list flatter anyone.
     // Left deliberately plain: a warning that has to be believed is the wrong
