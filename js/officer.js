@@ -228,7 +228,8 @@ function naughtyHtml() {
   const gravity = fell.map(([p, dmg]) => {
     const color = CLASS_COLORS[p.class] ?? "var(--text)";
     return `<tr><td><span style="color:${color}">${esc(p.name)}</span></td>
-      <td class="mono warn">${num(dmg)}</td><td class="dim">fall damage</td></tr>`;
+      <td class="mono warn">${num(dmg)}</td>
+      <td class="dim">met the floor</td></tr>`;
   }).join("");
 
   const totalFall = fell.reduce((n, [, d]) => n + d, 0);
@@ -240,11 +241,11 @@ function naughtyHtml() {
       <thead><tr><th>Player</th><th>Damage</th><th>What they did</th></tr></thead>
       <tbody>
         <tr class="off-naughty-head"><td colspan="3"><b>Blast radius</b>
-          — damage dealt to their own raid</td></tr>
-        ${blast || empty("Nobody blew anyone up 🎉")}
+          — damage generously shared with the group</td></tr>
+        ${blast || empty("Nobody blew anyone up. Suspicious. 🎉")}
         <tr class="off-naughty-head"><td colspan="3"><b>Gravity</b>
-          — fall damage${totalFall ? ` (${num(totalFall)} across the raid)` : ""}</td></tr>
-        ${gravity || empty("Everyone stayed on the floor 🎉")}
+          — still undefeated${totalFall ? ` (${num(totalFall)} across the raid)` : ""}</td></tr>
+        ${gravity || empty("Everyone remained at ground level 🎉")}
       </tbody>
     </table></div>
     <p class="csi-hint"><b>Blast radius</b> counts only mechanics that propagate FROM a player

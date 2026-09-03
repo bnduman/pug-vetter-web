@@ -205,16 +205,33 @@ test("reportCardToDiscord: shames 'no consumable', lists lone-elixir separately"
     ],
   };
   const text = reportCardToDiscord(card);
-  assert.match(text, /No flask\/elixir on half the pulls or less: Cheaper 1\/8/);
-  assert.ok(!/No flask\/elixir[^\n]*Elixdude/.test(text), "lone-elixir must not be in the 'no consumable' list");
-  assert.match(text, /Single elixir, no flask\/pair: Elixdude/);
+  assert.match(text, /Went in unmedicated[^\n]*: Cheaper 1\/8/);
+  assert.ok(!/unmedicated[^\n]*Elixdude/.test(text), "lone-elixir must not be in the 'no consumable' list");
+  assert.match(text, /One elixir, no flask[^\n]*: Elixdude/);
   // enchants are itemized by slot, not just counted
-  assert.match(text, /Missing enchants: Cheaper \(Back, Feet, Weapon\)/);
+  assert.match(text, /Still saving up for enchants: Cheaper \(Back, Feet, Weapon\)/);
   assert.ok(!text.includes("Good"), "flask user must not be shamed anywhere");
 
   const clean = reportCardToDiscord({ title: "t", players: [card.players[0]] });
-  assert.match(clean, /No flask\/elixir on half the pulls or less: nobody 🎉/);
-  assert.ok(!clean.includes("Single elixir"), "no partial line when nobody is partial");
+  assert.match(clean, /Went in unmedicated[^\n]*: nobody 🎉/);
+  assert.ok(!clean.includes("One elixir"), "no partial line when nobody is partial");
+});
+
+test("reportCardToDiscord: the jokes stay on the behaviour, never on a person", () => {
+  // This text gets pasted in front of the whole guild with real names in it.
+  // Every label must be able to precede a name without insulting them, so no
+  // line may call anyone anything — the shame is in the ratio that follows.
+  const text = reportCardToDiscord(
+    { title: "t", players: [{ id: 1, name: "Someone", perFight: { attended: 8, flaskFights: 0, elixirFights: 0, foodFights: 0 } }] },
+    { friendlyFire: new Map(), falling: new Map(), failed: 1, queries: 34 });
+  const labels = text.split("\n").slice(1).map((l) => l.split(":")[0]);
+  for (const l of labels) {
+    assert.ok(!/\b(idiot|noob|lazy|useless|bad|stupid|clown|trash)\b/i.test(l),
+      `label insults the player rather than the behaviour: ${l}`);
+  }
+  // The failure warning has to be believed, so it stays plain and factual.
+  const warn = text.split("\n").find((l) => l.startsWith("⚠"));
+  assert.match(warn, /^⚠ 1 of 34 query batches failed — the two lines above are lower bounds\.$/);
 });
 
 test("reportCardToDiscord: the naughty corner needs the deep scan", () => {
@@ -227,8 +244,8 @@ test("reportCardToDiscord: the naughty corner needs the deep scan", () => {
 
   // A scan that ran and found nothing DOES get to say nobody.
   const idle = reportCardToDiscord(card, { friendlyFire: new Map(), falling: new Map() });
-  assert.match(idle, /💥 Blew up their own raid: nobody 🎉/);
-  assert.match(idle, /🪂 Fall damage: nobody 🎉/);
+  assert.match(idle, /💥 Shared the damage with everyone nearby: nobody, remarkably 🎉/);
+  assert.match(idle, /🪂 Lost an argument with gravity: everyone stayed on the floor 🎉/);
 });
 
 test("reportCardToDiscord: naughty lines name, total and truncate", () => {
@@ -246,9 +263,9 @@ test("reportCardToDiscord: naughty lines name, total and truncate", () => {
   };
   const text = reportCardToDiscord({ title: "t", players }, deep);
   // Sorted by damage desc, with the mechanic named and numbers grouped.
-  assert.match(text, /💥 Blew up their own raid: Nooberinho 13,241 \(Mark of Kaz'rogal\), Geatri 5,294/);
+  assert.match(text, /💥 Shared the damage with everyone nearby: Nooberinho 13,241 \(Mark of Kaz'rogal\), Geatri 5,294/);
   // 8 fallers -> 5 shown + "(+3 more)", and a raid total.
-  assert.match(text, /🪂 Fall damage: P1 8,000, P2 7,000, P3 6,000, P4 5,000, P5 4,000 \(\+3 more\) — 36,000 total/);
+  assert.match(text, /🪂 Lost an argument with gravity: P1 8,000, P2 7,000, P3 6,000, P4 5,000, P5 4,000 \(\+3 more\) — 36,000 total/);
   // An id with no roster entry can't be named, so it is dropped from both the
   // list and the total rather than printed as "undefined".
   assert.ok(!text.includes("undefined"), "unmatched ids must never render");

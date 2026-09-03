@@ -153,10 +153,14 @@ export function reportCardToDiscord(card, deep = null) {
       const slots = (p.missingEnchants ?? []).map((m) => m.slot).join(", ");
       return slots ? `${p.name} (${slots})` : `${p.name} (${p.missingCount})`;
     });
-  lines.push(`🧪 No flask/elixir on half the pulls or less: ${consShame.join(", ") || "nobody 🎉"}`);
-  if (partial.length) lines.push(`⚗️ Single elixir, no flask/pair: ${partial.join(", ")}`);
-  lines.push(`🍖 Food on half the pulls or less: ${foodShame.join(", ") || "nobody 🎉"}`);
-  lines.push(`✨ Missing enchants: ${enchShame.join(", ") || "nobody 🎉"}`);
+  // The tone is deliberately dry: this gets pasted in front of the whole guild,
+  // so the joke is on the BEHAVIOUR and never on the person. Each label still
+  // names the metric, because a raid leader has to be able to read it at a
+  // glance — the ratios and numbers that follow do the actual work.
+  lines.push(`🧪 Went in unmedicated, half their pulls or worse: ${consShame.join(", ") || "nobody 🎉"}`);
+  if (partial.length) lines.push(`⚗️ One elixir, no flask — technically something: ${partial.join(", ")}`);
+  lines.push(`🍖 Raided on an empty stomach: ${foodShame.join(", ") || "nobody 🎉"}`);
+  lines.push(`✨ Still saving up for enchants: ${enchShame.join(", ") || "nobody 🎉"}`);
   // Only debuffs somebody could actually apply, and only the ones worth a
   // callout — a full checklist would drown the message.
   const weakDebuffs = (card.debuffs?.rows ?? [])
@@ -164,7 +168,7 @@ export function reportCardToDiscord(card, deep = null) {
     .sort((a, b) => a.pct - b.pct)
     .map((d) => `${d.label} ${d.pct}%`);
   if (card.debuffs) {
-    lines.push(`🎯 Raid debuffs under 80%: ${weakDebuffs.join(", ") || "all covered 🎉"}`);
+    lines.push(`🎯 Raid debuffs that could do better (under 80%): ${weakDebuffs.join(", ") || "all covered 🎉"}`);
   }
 
   // --- naughty corner (deep scan only) ---
@@ -179,11 +183,13 @@ export function reportCardToDiscord(card, deep = null) {
       .sort((a, b) => b[1] - a[1]);
     const fallTotal = fell.reduce((n, [, d]) => n + d, 0);
 
-    lines.push(`💥 Blew up their own raid: ${topNames(blast) || "nobody 🎉"}`);
-    lines.push(`🪂 Fall damage: ${topNames(fell.map(([id, dmg]) => `${nameById.get(id)} ${num(dmg)}`))
-      || "nobody 🎉"}${fallTotal ? ` — ${num(fallTotal)} total` : ""}`);
+    lines.push(`💥 Shared the damage with everyone nearby: ${topNames(blast) || "nobody, remarkably 🎉"}`);
+    lines.push(`🪂 Lost an argument with gravity: ${topNames(fell.map(([id, dmg]) => `${nameById.get(id)} ${num(dmg)}`))
+      || "everyone stayed on the floor 🎉"}${fallTotal ? ` — ${num(fallTotal)} total` : ""}`);
     // A degraded scan under-reports, and an under-reported shame list reads as
     // an innocent one. Say so rather than letting a short list flatter anyone.
+    // Left deliberately plain: a warning that has to be believed is the wrong
+    // place for a joke.
     if (deep.failed) {
       lines.push(`⚠ ${deep.failed} of ${deep.queries} query batches failed — the two lines above are lower bounds.`);
     }
