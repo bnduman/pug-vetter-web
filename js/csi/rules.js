@@ -170,10 +170,20 @@ export const RULES = {
   "spirit shock": { encounter: "Reliquary of Souls", category: "raidwide", severity: "info", advice: "Expected caster damage; healing context." },
   "fatal attraction": { encounter: "Mother Shahraz", category: "chain", severity: "critical", advice: "You have been teleported together — run apart immediately; the damage escalates while you are close." },
   "saber lash": { encounter: "Mother Shahraz", category: "tank", severity: "info", advice: "Expected; must be split across all three tanks stacked together." },
-  "sinful beam": { encounter: "Mother Shahraz", category: "avoidable", severity: "high", advice: "Move out of the sweeping beam." },
-  "sinister beam": { encounter: "Mother Shahraz", category: "avoidable", severity: "high", advice: "Move out of the sweeping beam." },
-  "vile beam": { encounter: "Mother Shahraz", category: "avoidable", severity: "high", advice: "Move out of the sweeping beam." },
-  "wicked beam": { encounter: "Mother Shahraz", category: "avoidable", severity: "high", advice: "Move out of the sweeping beam." },
+  // NOT "move out of a sweeping beam" — that was invented from the word "beam"
+  // and was wrong. All four read "Strikes an enemy with shadow energy that arcs
+  // to another nearby enemy, affecting up to 10 targets", at unlimited range:
+  // a random primary target plus an arc to whoever is standing close to them.
+  //
+  // raidwide, not avoidable or chain, because the damage table cannot tell the
+  // PRIMARY target (who did nothing wrong) from an ARC victim (who stood too
+  // close). Sinful Beam alone is ~690k across an entire raid on one night, so
+  // blaming all of it buries every real finding under noise. Spreading is still
+  // the counter, so the advice says so — it just isn't scored against anyone.
+  "sinful beam": { encounter: "Mother Shahraz", category: "raidwide", severity: "major", advice: "Arcs to nearby players — spread out so it can't chain, but a random first target is nobody's fault." },
+  "sinister beam": { encounter: "Mother Shahraz", category: "raidwide", severity: "major", advice: "Arcs to nearby players and knocks back — spread out, and watch your footing near edges." },
+  "vile beam": { encounter: "Mother Shahraz", category: "raidwide", severity: "major", advice: "Arcing shadow DoT — spread out so it can't chain to a neighbour." },
+  "wicked beam": { encounter: "Mother Shahraz", category: "raidwide", severity: "major", advice: "Arcs to nearby players and burns mana — spread out; healers watch their bars." },
   "consecration": { encounter: "Illidari Council", category: "avoidable", severity: "high", advice: "Move out of the consecrated ground." },
   "arcane bolt": { encounter: "Illidari Council", category: "raidwide", severity: "major", advice: "Assign interrupt coverage to Lady Malande's casts." },
   "empowered smite": { encounter: "Illidari Council", category: "tank", severity: "info", advice: "Expected tank damage; interrupt or heal through." },
