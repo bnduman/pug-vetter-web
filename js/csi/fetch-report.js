@@ -7,12 +7,11 @@ import { cacheGet, cacheSet, postGraphQL, WCLError } from "../wcl.js";
 import { buildReport } from "./normalize.js";
 import { buildRaidPrep, playerList } from "./prep.js";
 import {
-  COMBATANT_INFO_QUERY, PLAYER_BUFFS_QUERY, PLAYER_DETAILS_QUERY,
+  COMBATANT_INFO_QUERY, PLAYER_DETAILS_QUERY,
   REPORT_EVENTS_QUERY, REPORT_META_QUERY,
 } from "./queries.js";
 
 // How many per-player buff queries to run at once when reading consumables.
-const BUFF_CONCURRENCY = 6;
 
 // Friendly-side event streams the death-recap engine needs. Minimal, to limit
 // rate-limit cost: deaths, damage taken, healing, casts (for defensives).
@@ -73,54 +72,36 @@ async function fetchPlayerDetails(code, fightId) {
   return data?.reportData?.report?.playerDetails;
 }
 
-// Talent tree totals per player, from one combatantinfo query for the fight.
-async function fetchTalents(code, fightId, start, end) {
+// Talents AND consumable auras per player, from the ONE combatantinfo query
+// the fight already needs.
+//
+// The auras used to be thrown away here and re-fetched as a per-player Buffs
+// TABLE query instead — which was both worse and dearer. Worse because the
+// Buffs table intermittently fails to band pre-pull auras, so a raider who
+// flasked before the pull reads as unprepped (verified on a Kael'thas kill
+// where every combatantinfo seed carried the flask and the table banded none).
+// Dearer because it cost one query PER PLAYER, up to 25 on a full raid, to
+// obtain data already sitting in this response.
+//
+// A player with no seed is left undefined on purpose: classifyConsumables reads
+// that as "unknown", not as "brought nothing".
+async function fetchCombatantInfo(code, fightId, start, end) {
   const data = await postGraphQL(COMBATANT_INFO_QUERY, { code, fightID: fightId, start, end });
   const rows = data?.reportData?.report?.events?.data ?? [];
-  const byId = {};
-  for (const r of rows) if (r.sourceID != null) byId[r.sourceID] = r.talents;
-  return byId;
-}
-
-async function fetchPlayerBuffs(code, fightId, start, end, sourceID) {
-  const data = await postGraphQL(PLAYER_BUFFS_QUERY, {
-    code, fightID: fightId, start, end, sourceID,
-  });
-  const table = data?.reportData?.report?.table;
-  return (table?.data ?? table)?.auras ?? [];
+  const talentsById = {};
+  const aurasById = {};
+  for (const r of rows) {
+    if (r.sourceID == null) continue;
+    talentsById[r.sourceID] = r.talents;
+    if (r.auras) aurasById[r.sourceID] = r.auras;
+  }
+  return { talentsById, aurasById };
 }
 
 // Run an async fn over items with a concurrency cap; results stay index-aligned.
-async function mapLimit(items, limit, fn) {
-  const out = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i], i);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
-}
-
 // Per-player consumables: one Buffs query per player, concurrency-limited.
 // A failed query yields null ("unknown"), NOT [] — an empty array claims the
 // player genuinely had nothing, which we can't assert after an error.
-// A per-player buff query that fails yields `null` auras, which downstream
-// reads as "brought nothing" rather than "we don't know" — so the failure is
-// reported back and the caller refuses to cache a prep built on it.
-async function fetchConsumables(code, fightId, start, end, players) {
-  const ids = players.map((p) => p.id).filter((id) => id != null);
-  let failed = 0;
-  const aurasByIndex = await mapLimit(ids, BUFF_CONCURRENCY, (id) =>
-    fetchPlayerBuffs(code, fightId, start, end, id).catch(() => { failed += 1; return null; }),
-  );
-  const byId = {};
-  ids.forEach((id, i) => { byId[id] = aurasByIndex[i]; });
-  return { byId, failed };
-}
-
 /**
  * fetchReport(code)           -> overview: all boss fights, no events
  * fetchReport(code, fightId)  -> that fight with its events + player roles
@@ -160,20 +141,17 @@ export async function fetchReport(code, fightId = null) {
       const players = playerList(pd);
       const start = fight.startTime ?? 0;
       const end = fight.endTime ?? 0;
-      let talentsFailed = false;
-      const [cons, talentsById] = players.length
-        ? await Promise.all([
-            fetchConsumables(code, fightId, start, end, players),
-            fetchTalents(code, fightId, start, end)
-              .catch(() => { talentsFailed = true; return {}; }),
-          ])
-        : [{ byId: {}, failed: 0 }, {}];
-      prep = buildRaidPrep(pd, cons.byId, talentsById);
-      // Only a COMPLETE prep is cached. Caching one built on failed queries
+      let ciFailed = false;
+      const ci = players.length
+        ? await fetchCombatantInfo(code, fightId, start, end)
+            .catch(() => { ciFailed = true; return { talentsById: {}, aurasById: {} }; })
+        : { talentsById: {}, aurasById: {} };
+      prep = buildRaidPrep(pd, ci.aurasById, ci.talentsById);
+      // Only a COMPLETE prep is cached. Caching one built on a failed query
       // pins "no flask, no spec" on real raiders for the whole session, and
       // reopening the pull would replay it without re-querying — the same
       // cache-a-failure bug already fixed in the vetter and the officer card.
-      if (!cons.failed && !talentsFailed) eventCache.set(prepKey, prep);
+      if (!ciFailed) eventCache.set(prepKey, prep);
     }
 
     const built = buildReport(code, report, fightId, eventsByFight);

@@ -16,6 +16,13 @@ export function num(n) {
 }
 
 /** id -> Actor lookup for a report. */
-export function actorIndex(report) {
-  return new Map(report.actors.map((a) => [a.id, a]));
+// `fight` is optional but matters: a player's ROLE is per-fight (it comes from
+// that fight's playerDetails), and role decides whether a frontal counts
+// against someone. Opening one pull used to overwrite the report-wide actor
+// list, so a player who tanked pull 1 and DPS'd pull 5 had pull 1 re-diagnosed
+// the moment you looked at pull 5 — earlier verdicts silently changing based on
+// where you clicked. A fight that carries its own actors is graded with them;
+// one that was never opened individually falls back to the report-wide list.
+export function actorIndex(report, fight) {
+  return new Map((fight?.actors ?? report.actors).map((a) => [a.id, a]));
 }

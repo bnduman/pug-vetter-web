@@ -60,10 +60,10 @@ function loading(text) {
 }
 
 function overview(error) {
-  const idx = actorIndex(report);
+  // Per fight, not one shared index: see actorIndex().
   const rows = report.fights.map((f) => ({
     f,
-    s: f.events.length > 0 ? summarizeFight(f, idx) : null,
+    s: f.events.length > 0 ? summarizeFight(f, actorIndex(report, f)) : null,
   }));
   const wipes = rows.filter((r) => !r.f.kill);
   const kills = rows.filter((r) => r.f.kill);
@@ -115,9 +115,9 @@ function stat(label, value) {
 }
 
 function fightView(fightId) {
-  const idx = actorIndex(report);
   const fight = report.fights.find((f) => f.id === fightId);
   if (!fight) { overview("Fight not found."); return; }
+  const idx = actorIndex(report, fight);
   const summary = summarizeFight(fight, idx);
   currentFight = fight;
   currentSummary = summary;
@@ -428,10 +428,14 @@ async function navigateFight(fightId) {
     loading("Pulling the events for this pull…");
     try {
       const full = await fetchReport(reportCode, Number(fightId));
+      // The fetched actors carry THIS pull's roles, so they ride with this
+      // fight instead of replacing the report-wide list and re-grading every
+      // pull already on screen.
       report = {
         ...report,
-        actors: full.actors,
-        fights: report.fights.map((f) => (f.id === fightId ? full.fights[0] : f)),
+        actors: report.actors?.length ? report.actors : full.actors,
+        fights: report.fights.map((f) =>
+          (f.id === fightId ? { ...full.fights[0], actors: full.actors } : f)),
       };
     } catch (e) {
       overview(msg(e));
