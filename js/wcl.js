@@ -51,25 +51,38 @@ const REQUEST_TIMEOUT_MS = 20000;
 
 // fetch() with an abort-based timeout so a hung request can't stall the UI
 // forever. Timeouts surface as a friendly WCLError.
+const timedOut = () =>
+  new WCLError(`Warcraft Logs request timed out after ${REQUEST_TIMEOUT_MS / 1000}s — try again.`);
+
+// THE TIMEOUT HAS TO COVER THE BODY, NOT JUST THE HEADERS. `fetch` resolves as
+// soon as response headers arrive, so clearing the timer at that point left the
+// part that actually streams bytes — `resp.json()` / `resp.text()` — with no
+// deadline at all. A server that sent headers and then stalled hung the lookup
+// forever: no abort, no WCLError, and a spinner that never resolved.
+//
+// So the caller gets a `release` and must call it only AFTER consuming the
+// body, in a finally. Until then the AbortController is still armed and a stall
+// mid-body aborts exactly like a stall mid-header.
 async function fetchWithTimeout(url, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const release = () => clearTimeout(timer);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    return { resp, release };
   } catch (err) {
-    if (err?.name === "AbortError") {
-      throw new WCLError(`Warcraft Logs request timed out after ${REQUEST_TIMEOUT_MS / 1000}s — try again.`);
-    }
+    release();
+    if (err?.name === "AbortError") throw timedOut();
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
 async function jsonOf(resp) {
   try {
     return await resp.json();
-  } catch {
+  } catch (err) {
+    // An abort here is the body-read deadline firing, not malformed JSON.
+    if (err?.name === "AbortError") throw timedOut();
     throw new WCLError(
       `Warcraft Logs returned a non-JSON response (HTTP ${resp.status}). ` +
       "It may be down for maintenance — please try again shortly.");
@@ -84,31 +97,35 @@ async function getToken(force = false) {
   if (!CONFIG.WCL_CLIENT_ID || !CONFIG.WCL_CLIENT_SECRET) {
     throw new WCLError("Warcraft Logs credentials are not set — edit js/config.js.");
   }
-  let resp;
+  let resp, release;
   try {
-    resp = await fetchWithTimeout(CONFIG.TOKEN_URL, {
+    ({ resp, release } = await fetchWithTimeout(CONFIG.TOKEN_URL, {
       method: "POST",
       headers: {
         Authorization: "Basic " + btoa(`${CONFIG.WCL_CLIENT_ID}:${CONFIG.WCL_CLIENT_SECRET}`),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: "grant_type=client_credentials",
-    });
+    }));
   } catch (err) {
     if (err instanceof WCLError) throw err;
     throw new WCLError(`Could not reach Warcraft Logs: ${err}`);
   }
-  if (!resp.ok) {
-    throw new WCLError(
-      `Token request failed (${resp.status}). Check the client id/secret in js/config.js.`);
+  try {
+    if (!resp.ok) {
+      throw new WCLError(
+        `Token request failed (${resp.status}). Check the client id/secret in js/config.js.`);
+    }
+    const data = await jsonOf(resp);
+    if (!data.access_token) throw new WCLError("Token response did not contain an access_token.");
+    store.set("wcl_token", {
+      value: data.access_token,
+      expiry: Date.now() + (data.expires_in ?? 3600) * 1000,
+    });
+    return data.access_token;
+  } finally {
+    release();   // only now is the body done streaming
   }
-  const data = await jsonOf(resp);
-  if (!data.access_token) throw new WCLError("Token response did not contain an access_token.");
-  store.set("wcl_token", {
-    value: data.access_token,
-    expiry: Date.now() + (data.expires_in ?? 3600) * 1000,
-  });
-  return data.access_token;
 }
 
 function retryAfterMs(resp, attempt) {
@@ -125,18 +142,21 @@ export async function postGraphQL(query, variables = {}) {
   let rateAttempt = 0;
   for (;;) {
     const token = await getToken();
-    let resp;
+    let resp, release;
     try {
-      resp = await fetchWithTimeout(CONFIG.API_URL, {
+      ({ resp, release } = await fetchWithTimeout(CONFIG.API_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ query, variables }),
-      });
+      }));
     } catch (err) {
       if (err instanceof WCLError) throw err;
       throw new WCLError(`Could not reach Warcraft Logs: ${err}`);
     }
 
+    // Every path out of here — including the two `continue`s that retry — has to
+    // release the timer, or a long-lived page leaks one per retry.
+    try {
     if (resp.status === 401 && !tokenRetried) {
       await getToken(true); // token may have expired early; refresh and retry once
       tokenRetried = true;
@@ -162,5 +182,8 @@ export async function postGraphQL(query, variables = {}) {
       throw new WCLError(`Query error: ${msgs}`);
     }
     return payload.data ?? {};
+    } finally {
+      release();
+    }
   }
 }

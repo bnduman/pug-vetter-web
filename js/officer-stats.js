@@ -554,13 +554,21 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   // This table also answers the naughty corner's friendly-fire half for free —
   // it is the only view carrying `sources`, and it is unfiltered, so every chain
   // mechanic's culprits are already in it. No extra query for that half.
+  //
+  // Its failure MUST count toward `failed`. It is awaited outside the job loop,
+  // so it used to fail silently: the scan reported 0 failures, got cached for
+  // the session, and the naughty corner rendered "Nobody blew anyone up" —
+  // publicly clearing people on data that never arrived, with no warning and no
+  // way to retry. An empty hostility map is a safe degradation; an empty
+  // friendly-fire map is a false accusation of innocence.
+  let sourcesFailed = 0;
   const hostileById = await postGraphQL(ABILITY_SOURCES_QUERY, vars)
     .then((r) => {
       const entries = unwrap(r.reportData?.report?.table).entries;
       friendlyFire = friendlyFireFromAbilities(entries);
       return abilityHostility(entries);
     })
-    .catch(() => new Map());
+    .catch(() => { sourcesFailed = 1; return new Map(); });
 
   const jobs = [
     { query: PLAIN_TABLE_QUERY("Interrupts"),
@@ -619,7 +627,7 @@ export async function fetchDeepStats(code, reportDurationMs, roleById = new Map(
   ];
 
   let done = 0;
-  let failed = 0;
+  let failed = sourcesFailed;   // the ability-sources query above counts too
   for (let i = 0; i < jobs.length; i += STATS_CONCURRENCY) {
     await Promise.all(jobs.slice(i, i + STATS_CONCURRENCY).map(async (job) => {
       // One bad batch must not sink the night: count it and carry on, so the
