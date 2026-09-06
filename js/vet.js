@@ -82,7 +82,7 @@ async function gearSetFromReport(rep, charName, className) {
   const data = await postGraphQL(REPORT_GEAR_QUERY, { code, start: 0, end: duration });
   const player = findPlayer(data.reportData?.report?.playerDetails, charName);
   if (!player || !player.gear.length) return null;
-  const gear = buildGearList(player.gear);          // stamps per-item gs below
+  const gear = buildGearList(player.gear, className); // stamps per-item gs below
   const enchants = analyzeEnchants(player.gear, className);
   const gearscore = computeGearScore(gear, className);
   return {
@@ -130,9 +130,13 @@ async function buildGearSets(reports, charName, className, multi) {
   }
 
   // Surface rate-limit/auth/network failures — but only when they cost us
-  // everything; a partial result is still worth showing.
+  // everything; a partial result is still worth SHOWING. It must not be
+  // CACHED as complete, though: a character whose second gear set failed would
+  // otherwise be pinned for the whole TTL looking like they only have one, and
+  // no retry could tell the difference. So a partial failure travels back to
+  // the caller rather than being swallowed here.
   if (!sets.length && wclError) throw wclError;
-  return sets;
+  return { sets, incomplete: !!wclError };
 }
 
 /**
@@ -204,7 +208,10 @@ export async function vet(name, { onScorecard } = {}) {
   if (recent.length) {
     const multi = distinctRoles(zrList).size >= 2;
     try {
-      gearSets = await buildGearSets(recent, name, className, multi);
+      const scan = await buildGearSets(recent, name, className, multi);
+      gearSets = scan.sets;
+      // Some sets loaded and some didn't: show what we have, but don't cache it.
+      if (scan.incomplete) gearError = "Some gear scans failed — this may be incomplete.";
     } catch (e) {
       // Don't disguise an auth/rate-limit/network failure as "no gear".
       gearError = e instanceof WCLError ? e.message : "Gear data could not be loaded.";

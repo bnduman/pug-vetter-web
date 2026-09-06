@@ -203,7 +203,17 @@ export function analyzeEnchants(gear, className) {
 
 // The full equipment list for the detailed gear view: one entry per worn slot,
 // in equipment-slot order, with quality/enchant/gem/socket details.
-export function buildGearList(gear) {
+//
+// `className` is needed for the SAME reason analyzeEnchants takes it: slot 17
+// (Ranged) is enchantable for a hunter's bow and not for a caster's wand, idol
+// or libram. Without it this said `enchantable: true` for everyone, so the
+// detailed gear view and the autopsy's missing-enchant list both told casters
+// to enchant a wand — while analyzeEnchants, which does check, said they were
+// fine. Two views of one character disagreeing, with the wrong one accusing.
+//
+// An unknown class treats class-scoped slots as NOT enchantable: under-flagging
+// is a gap, over-flagging is a false accusation.
+export function buildGearList(gear, className) {
   const bySlot = gearBySlot(gear);
   const out = [];
   for (const [slot, item] of [...bySlot.entries()].sort((a, b) => a[0] - b[0])) {
@@ -218,7 +228,8 @@ export function buildGearList(gear) {
       itemLevel: item.itemLevel ?? null,
       enchant: item.permanentEnchant ? enchantNameOf(item) : null,
       enchantId: item.permanentEnchant || null,
-      enchantable: ENCHANT_SLOTS.some((r) => r.slot === slot),
+      enchantable: ENCHANT_SLOTS.some((r) => r.slot === slot
+        && (!r.classes || (className && r.classes.includes(className)))),
       gems: (item.gems ?? []).map((g) => ({ id: g.id, icon: g.icon ?? null })),
       sockets: socketsOf(item),
       emptySockets: emptySocketsOf(item),

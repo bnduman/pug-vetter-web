@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildRoster, consumablesByFight, reportCardToDiscord } from "../js/officer-data.js";
+import { buildGearList } from "../js/analyze.js";
 import { mergeAlts, resolveMain } from "../js/attendance.js";
 import {
   abilityHostility, avoidableFromDamageTaken, avoidableSpellIds, batchIds,
@@ -232,6 +233,68 @@ test("reportCardToDiscord: the jokes stay on the behaviour, never on a person", 
   // The failure warning has to be believed, so it stays plain and factual.
   const warn = text.split("\n").find((l) => l.startsWith("⚠"));
   assert.match(warn, /^⚠ 1 of 34 query batches failed — the two lines above are lower bounds\.$/);
+});
+
+test("reportCardToDiscord: says when raiders could not be graded", () => {
+  // Players with no per-pull data drop out of every shame list. Silently, that
+  // turns a short combatantinfo response into a clean bill of health for a raid
+  // nobody measured — so the export has to declare who it could not see.
+  const graded = { attended: 8, flaskFights: 8, elixirFights: 8, foodFights: 8 };
+  const text = reportCardToDiscord({ title: "t", players: [
+    { name: "Seen", perFight: graded },
+    { name: "Ghost", perFight: null },
+    { name: "Ghost2", perFight: { attended: 0, flaskFights: 0, elixirFights: 0, foodFights: 0 } },
+  ] });
+  assert.match(text, /⚠ 2 of 3 raiders had no per-pull data logged/);
+  assert.match(text, /not necessarily innocent/);
+
+  // ...and stays quiet when everyone was measured.
+  const clean = reportCardToDiscord({ title: "t", players: [{ name: "Seen", perFight: graded }] });
+  assert.ok(!clean.includes("no per-pull data"), "no caveat when the whole raid was graded");
+});
+
+test("buildGearList: a class-scoped enchant slot only flags that class", () => {
+  // Slot 17 is a hunter's scopeable bow AND every caster's wand/idol/libram.
+  // Flagging it for everyone told casters to enchant a wand in the detailed
+  // gear view and in the autopsy's missing-enchant list, while analyzeEnchants
+  // correctly ignored it — two views of one character disagreeing.
+  const ranged = [{ id: 5, slot: 17, name: "Wand", quality: 3 }];
+  assert.equal(buildGearList(ranged, "Hunter")[0].enchantable, true);
+  assert.equal(buildGearList(ranged, "Mage")[0].enchantable, false);
+  // Unknown class must not accuse: under-flagging is a gap, over-flagging is a
+  // false accusation.
+  assert.equal(buildGearList(ranged, undefined)[0].enchantable, false);
+  // An unscoped slot is unaffected by any of this.
+  assert.equal(buildGearList([{ id: 9, slot: 4, name: "Chest", quality: 3 }], "Mage")[0].enchantable, true);
+});
+
+test("getAttendanceMap: concurrent callers share ONE scan", async () => {
+  // The most expensive call in the app (75 points) and the only one that runs
+  // unasked. Without an in-flight guard, vetting several names at once started
+  // a full 4-page scan per caller.
+  const { getAttendanceMap } = await import("../js/attendance.js");
+  const wcl = await import("../js/wcl.js");
+  const realFetch = globalThis.fetch;
+  let guildCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("oauth")) {
+      return { ok: true, status: 200, headers: new Map(),
+        json: async () => ({ access_token: "t", expires_in: 3600 }) };
+    }
+    guildCalls += 1;
+    await new Promise((r) => setTimeout(r, 30)); // keep it in flight
+    return { ok: true, status: 200, headers: new Map(),
+      json: async () => ({ data: { guildData: { guild: { name: "g", attendance: {
+        data: [], total: 0, per_page: 25, current_page: 1 } } } } }) };
+  };
+  try {
+    const [a, b, c] = await Promise.all([getAttendanceMap(), getAttendanceMap(), getAttendanceMap()]);
+    assert.equal(guildCalls, 1, `three concurrent callers issued ${guildCalls} scans`);
+    assert.equal(a, b);
+    assert.equal(b, c, "all callers get the same result object");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test("reportCardToDiscord: the naughty corner needs the deep scan", () => {

@@ -101,8 +101,31 @@ const ATTENDANCE_DEADLINE_MS = 45000;
 // -> { guildName, reportsScanned, players: { nameLower:
 //      {name, count, lastTs, raids: [{code, ts, zone}] (newest first)} } }
 // or null when no guild is configured / the guild can't be found.
+// The scan in flight, if any. Without this, every caller that arrives before
+// the first one finishes starts its OWN 4-page scan: vetting three names in a
+// row, or opening the officer tab while a lookup is running, quietly spent 75
+// points each time instead of 75 once. It is the single most expensive call in
+// the app and the only one that runs unasked, so the duplicates were the most
+// likely cause of a shared-key 429.
+//
+// Deliberately not a cache: it holds only the in-flight promise and is cleared
+// when that settles, so a FAILED scan is never handed to a later caller.
+let scanInFlight = null;
+
 export async function getAttendanceMap() {
   if (!CONFIG.GUILD_NAME) return null;
+  if (scanInFlight) return scanInFlight;
+  scanInFlight = runAttendanceScan();
+  try {
+    return await scanInFlight;
+  } finally {
+    // Cleared on failure too, so a rate-limited scan doesn't poison later
+    // callers with a rejected promise — the next one gets a fresh attempt.
+    scanInFlight = null;
+  }
+}
+
+async function runAttendanceScan() {
   // "att2": key versioned; bump when the cached shape changes. The page count
   // is part of the key so raising ATTENDANCE_MAX_PAGES takes effect
   // immediately instead of serving the shallower cached map for up to 6h.

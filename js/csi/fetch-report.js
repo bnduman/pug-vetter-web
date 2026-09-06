@@ -107,14 +107,18 @@ async function mapLimit(items, limit, fn) {
 // Per-player consumables: one Buffs query per player, concurrency-limited.
 // A failed query yields null ("unknown"), NOT [] — an empty array claims the
 // player genuinely had nothing, which we can't assert after an error.
+// A per-player buff query that fails yields `null` auras, which downstream
+// reads as "brought nothing" rather than "we don't know" — so the failure is
+// reported back and the caller refuses to cache a prep built on it.
 async function fetchConsumables(code, fightId, start, end, players) {
   const ids = players.map((p) => p.id).filter((id) => id != null);
+  let failed = 0;
   const aurasByIndex = await mapLimit(ids, BUFF_CONCURRENCY, (id) =>
-    fetchPlayerBuffs(code, fightId, start, end, id).catch(() => null),
+    fetchPlayerBuffs(code, fightId, start, end, id).catch(() => { failed += 1; return null; }),
   );
   const byId = {};
   ids.forEach((id, i) => { byId[id] = aurasByIndex[i]; });
-  return byId;
+  return { byId, failed };
 }
 
 /**
@@ -156,14 +160,20 @@ export async function fetchReport(code, fightId = null) {
       const players = playerList(pd);
       const start = fight.startTime ?? 0;
       const end = fight.endTime ?? 0;
-      const [consumablesById, talentsById] = players.length
+      let talentsFailed = false;
+      const [cons, talentsById] = players.length
         ? await Promise.all([
             fetchConsumables(code, fightId, start, end, players),
-            fetchTalents(code, fightId, start, end).catch(() => ({})),
+            fetchTalents(code, fightId, start, end)
+              .catch(() => { talentsFailed = true; return {}; }),
           ])
-        : [{}, {}];
-      prep = buildRaidPrep(pd, consumablesById, talentsById);
-      eventCache.set(prepKey, prep);
+        : [{ byId: {}, failed: 0 }, {}];
+      prep = buildRaidPrep(pd, cons.byId, talentsById);
+      // Only a COMPLETE prep is cached. Caching one built on failed queries
+      // pins "no flask, no spec" on real raiders for the whole session, and
+      // reopening the pull would replay it without re-querying — the same
+      // cache-a-failure bug already fixed in the vetter and the officer card.
+      if (!cons.failed && !talentsFailed) eventCache.set(prepKey, prep);
     }
 
     const built = buildReport(code, report, fightId, eventsByFight);

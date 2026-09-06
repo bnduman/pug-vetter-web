@@ -129,7 +129,7 @@ export function buildRaidPrep(playerDetails, consumablesById = {}, talentsById =
       const gearRaw = p.combatantInfo?.gear ?? [];
       const hasGear = gearRaw.length > 0;
       const en = hasGear ? analyzeEnchants(gearRaw, p.type) : null;
-      const gear = hasGear ? buildGearList(gearRaw) : [];
+      const gear = hasGear ? buildGearList(gearRaw, p.type) : [];
       const consumables = classifyConsumables(consumablesById[p.id]);
       const missingCount = en ? en.missing_required : null;
       // The specific required slots missing an enchant, each with the item worn

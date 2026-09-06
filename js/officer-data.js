@@ -141,7 +141,13 @@ function topNames(rows, limit = NAUGHTY_LIMIT) {
  */
 export function reportCardToDiscord(card, deep = null) {
   const lines = [`**${card.title} — raid prep**`];
+  // Players with no per-pull combat data can't be graded, so they drop out of
+  // every list below. That silently turns missing data into a clean bill of
+  // health: if the combatantinfo query came back short, the export happily
+  // prints "nobody" for a raid it never actually measured. Counted here so the
+  // message can say who it could not see.
   const known = card.players.filter((p) => p.perFight && p.perFight.attended > 0);
+  const ungraded = card.players.length - known.length;
   // Shame threshold: below this fraction of pulls. A flask that ran out for
   // the very last boss is not a Discord offense.
   const shame = (key) => known
@@ -178,6 +184,13 @@ export function reportCardToDiscord(card, deep = null) {
     .map((d) => `${d.label} ${d.pct}%`);
   if (card.debuffs) {
     lines.push(`🎯 Raid debuffs that could do better (under 80%): ${weakDebuffs.join(", ") || "all covered 🎉"}`);
+  }
+  // Deliberately plain, and placed before the naughty corner so it qualifies
+  // every list above it. A shame list that quietly omitted a third of the raid
+  // reads as an innocent raid.
+  if (ungraded > 0) {
+    lines.push(`⚠ ${ungraded} of ${card.players.length} raiders had no per-pull data logged`
+      + " — they are missing from the lists above, not necessarily innocent.");
   }
 
   // --- naughty corner (deep scan only) ---
